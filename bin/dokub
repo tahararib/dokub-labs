@@ -157,9 +157,9 @@ cmd_mesure() {
     R[demarrage]=$((SECONDS - t)); ok "1 pod prêt en ${R[demarrage]} s"
     $kn logs deploy/taskboard | grep -o "Started TaskboardApplication in [0-9.]* seconds" | sed 's/^/  Spring : /' || true
 
-    log "[3/7] Boucle de requêtes en continu (pod « charge », 2 requêtes/s)"
+    log "[3/7] Boucle de requêtes en continu (pod « charge », 2 requêtes/s, délai 10 s, LENT au-delà de 2 s)"
     $kn run charge --image=busybox:1.37 --restart=Never -- sh -c \
-        'while true; do r=$(wget -qO- -T 2 http://taskboard/api/version 2>&1) && echo "$r" || echo "ERREUR $(date +%T) $r"; sleep 0.5; done' >/dev/null
+        'while true; do s=$(date +%s); r=$(wget -qO- -T 10 http://taskboard/api/version 2>&1); c=$?; d=$(( $(date +%s) - s )); if [ $c -ne 0 ]; then echo "ERREUR $(date +%T) ${d}s $r"; elif [ $d -ge 2 ]; then echo "LENT $(date +%T) ${d}s $r"; else echo "$r"; fi; sleep 0.5; done' >/dev/null
     $kn wait --for=condition=Ready pod/charge --timeout=60s >/dev/null
     ok "boucle démarrée"
 
@@ -234,8 +234,8 @@ cmd_mesure() {
         "rollout avec preStop sleep 5 s" "${R[rollout_prestop]} s" \
         "erreurs avec preStop" "${R[erreurs_prestop]}" \
         "rollout undo depuis la v3" "${R[undo]} s"
-    echo -e "\n${CYAN}Détail des requêtes en erreur (heure, message de wget) :${NC}"
-    $kn logs charge | grep ERREUR | sed 's/^/  /' || echo "  aucune"
+    echo -e "\n${CYAN}Requêtes en erreur ou lentes (≥ 2 s) : heure, durée, réponse :${NC}"
+    $kn logs charge | grep -E "^(ERREUR|LENT)" | sed 's/^/  /' || echo "  aucune"
     echo -e "\n${CYAN}Chronologie des pods (création, suppression) :${NC}"
     $kn get events --sort-by=.lastTimestamp -o custom-columns=HEURE:.lastTimestamp,RAISON:.reason,OBJET:.involvedObject.name --no-headers \
         | grep -E "Killing|Started|SuccessfulCreate|SuccessfulDelete" | sed 's/^/  /' | tail -30
