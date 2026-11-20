@@ -38,6 +38,32 @@ k()    { kubectl --context "$CTX" "$@"; }
 
 cluster_exists() { kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; }
 
+# Copie une image du Docker du poste vers le containerd de chaque nœud kind.
+# On n'utilise pas « kind load docker-image » : il importe avec --all-platforms, et une
+# image multi-plateforme récupérée par docker pull (postgres, nginx…) ne contient que les
+# couches linux/amd64 ; l'import échoue alors sur « content digest … not found ».
+# Ici on exporte et on importe uniquement la plateforme linux/amd64.
+load_image() {
+    local img=$1 node
+    for node in $(kind get nodes --name "$CLUSTER"); do
+        if docker exec "$node" crictl inspecti -q "$img" >/dev/null 2>&1; then
+            echo "    $img : déjà dans $node"; continue
+        fi
+        { docker save --platform linux/amd64 "$img" 2>/dev/null || docker save "$img"; } \
+          | docker exec -i "$node" ctr --namespace=k8s.io images import \
+                --platform linux/amd64 --digests --snapshotter=overlayfs - >/dev/null \
+          || die "échec du chargement de $img dans $node"
+        echo "    $img → $node"
+    done
+}
+
+# Diagnostic affiché quand un déploiement n'aboutit pas dans le délai
+diag() {   # diag <namespace> <label>
+    warn "Diagnostic :"
+    kubectl --context "$CTX" -n "$1" get pods -l "$2" -o wide
+    kubectl --context "$CTX" -n "$1" get events --sort-by=.lastTimestamp | tail -8
+}
+
 # ────────────────────────────────────────────────
 cmd_images() {
     log "Images externes"
@@ -79,15 +105,13 @@ cmd_cluster_up() {
     k apply -f "$ROOT/cluster/metrics-server.yaml" >/dev/null
     ok "manifeste appliqué (les métriques arrivent ~60 s après le démarrage)"
 
-    log "[4/5] Chargement des images dans les nœuds (kind load)"
-    local imgs=()
-    for img in "${EXTERNAL_IMAGES[@]}" "${TASKBOARD_IMAGES[@]}"; do
-        docker image inspect "$img" >/dev/null 2>&1 && imgs+=("$img") || warn "$img absente du poste : lancer « dokub images »"
-    done
+    log "[4/5] Chargement des images dans les nœuds"
     local t1=$SECONDS
-    echo "  Copie de ${#imgs[@]} images dans 3 nœuds : plusieurs minutes, une ligne par image et par nœud"
-    kind load docker-image --name "$CLUSTER" "${imgs[@]}" 2>&1 | sed 's/^/    /'
-    ok "${#imgs[@]} images chargées dans les 3 nœuds ($((SECONDS - t1)) s)"
+    for img in "${EXTERNAL_IMAGES[@]}" "${TASKBOARD_IMAGES[@]}"; do
+        if docker image inspect "$img" >/dev/null 2>&1; then load_image "$img"
+        else warn "$img absente du poste : lancer « dokub images »"; fi
+    done
+    ok "Images chargées dans les 3 nœuds ($((SECONDS - t1)) s)"
 
     log "[5/5] Vérification"
     k rollout status deployment/metrics-server -n kube-system --timeout=180s >/dev/null && ok "metrics-server prêt"
@@ -123,13 +147,13 @@ cmd_mesure() {
     log "[1/7] PostgreSQL"
     local t=$SECONDS
     $kn apply -f "$ROOT/manifests/mesure/postgres.yaml" >/dev/null
-    $kn rollout status deploy/postgres --timeout=180s >/dev/null
+    $kn rollout status deploy/postgres --timeout=180s >/dev/null || { diag "$NS" app=postgres; exit 1; }
     R[postgres]=$((SECONDS - t)); ok "PostgreSQL prêt en ${R[postgres]} s"
 
     log "[2/7] taskboard 1.0.0, 1 réplica (premier démarrage d'une JVM)"
     t=$SECONDS
     $kn apply -f "$ROOT/manifests/mesure/taskboard.yaml" >/dev/null
-    $kn rollout status deploy/taskboard --timeout=300s >/dev/null
+    $kn rollout status deploy/taskboard --timeout=300s >/dev/null || { diag "$NS" app=taskboard; exit 1; }
     R[demarrage]=$((SECONDS - t)); ok "1 pod prêt en ${R[demarrage]} s"
     $kn logs deploy/taskboard | grep -o "Started TaskboardApplication in [0-9.]* seconds" | sed 's/^/  Spring : /' || true
 
