@@ -182,20 +182,24 @@ cmd_mesure() {
     echo "  Réponses par version depuis le début :"
     $kn logs charge | grep -o "version=[0-9.]*" | sort | uniq -c | sed 's/^/   /'
 
-    log "[5b/7] Même rollout avec un délai d'arrêt (preStop sleep 5 s)"
-    # Les erreurs du rollout précédent viennent d'une course : le pod reçoit SIGTERM et
-    # ferme son port pendant que kube-proxy envoie encore du trafic vers lui pendant
-    # quelques instants. Un preStop « sleep » retarde l'arrêt le temps que le pod
-    # sorte des EndpointSlices.
+    log "[5b/7] Rollout avec délai d'arrêt (preStop sleep 10 s)"
+    # Cause mesurée (dokub diag-rollout, 20/11/2026) : après SIGTERM, un pod reçoit encore
+    # des requêtes le temps que la sortie des EndpointSlices se propage aux règles de
+    # kube-proxy ; Tomcat, en arrêt progressif, les garde sans répondre (attente de 10 s).
+    # Le preStop ne s'applique qu'aux pods CRÉÉS après son ajout : on l'ajoute (rollout
+    # non compté), puis on mesure le rollout suivant, qui arrête des pods qui le portent.
+    $kn patch deploy/taskboard --type=json -p \
+      '[{"op":"add","path":"/spec/template/spec/containers/0/lifecycle","value":{"preStop":{"sleep":{"seconds":10}}}}]' >/dev/null
+    $kn rollout status deploy/taskboard --timeout=600s >/dev/null
+    sleep 12   # laisse expirer les requêtes bloquées sur les pods arrêtés sans preStop
     local avant; avant=$($kn logs charge | grep -c ERREUR || true)
     t=$SECONDS
-    $kn patch deploy/taskboard --type=json -p \
-      '[{"op":"add","path":"/spec/template/spec/containers/0/lifecycle","value":{"preStop":{"sleep":{"seconds":5}}}}]' >/dev/null
+    $kn set image deploy/taskboard taskboard=taskboard:1.0.0 >/dev/null
     $kn rollout status deploy/taskboard --timeout=600s >/dev/null
     R[rollout_prestop]=$((SECONDS - t))
-    sleep 3
+    sleep 12
     R[erreurs_prestop]=$(( $($kn logs charge | grep -c ERREUR || true) - avant ))
-    ok "rollout avec preStop terminé en ${R[rollout_prestop]} s ; requêtes en erreur : ${R[erreurs_prestop]}"
+    ok "rollout 2.0.0 → 1.0.0 avec preStop terminé en ${R[rollout_prestop]} s ; requêtes en erreur : ${R[erreurs_prestop]}"
 
     log "[6/7] Version 3.0.0 défaillante : le rollout doit rester bloqué"
     $kn set image deploy/taskboard taskboard=taskboard:3.0.0 >/dev/null
@@ -231,7 +235,7 @@ cmd_mesure() {
         "passage à 3 réplicas" "${R[scale]} s" \
         "rollout 1.0.0 → 2.0.0 (3 pods)" "${R[rollout]} s" \
         "erreurs pendant ce rollout" "${R[erreurs]}" \
-        "rollout avec preStop sleep 5 s" "${R[rollout_prestop]} s" \
+        "rollout avec preStop sleep 10 s" "${R[rollout_prestop]} s" \
         "erreurs avec preStop" "${R[erreurs_prestop]}" \
         "rollout undo depuis la v3" "${R[undo]} s"
     echo -e "\n${CYAN}Requêtes en erreur ou lentes (≥ 2 s) : heure, durée, réponse :${NC}"
