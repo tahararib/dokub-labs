@@ -85,7 +85,8 @@ cmd_cluster_up() {
         docker image inspect "$img" >/dev/null 2>&1 && imgs+=("$img") || warn "$img absente du poste : lancer « dokub images »"
     done
     local t1=$SECONDS
-    kind load docker-image --name "$CLUSTER" "${imgs[@]}" >/dev/null
+    echo "  Copie de ${#imgs[@]} images dans 3 nœuds : plusieurs minutes, une ligne par image et par nœud"
+    kind load docker-image --name "$CLUSTER" "${imgs[@]}" 2>&1 | sed 's/^/    /'
     ok "${#imgs[@]} images chargées dans les 3 nœuds ($((SECONDS - t1)) s)"
 
     log "[5/5] Vérification"
