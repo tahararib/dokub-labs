@@ -159,7 +159,7 @@ cmd_mesure() {
 
     log "[3/7] Boucle de requêtes en continu (pod « charge », 2 requêtes/s)"
     $kn run charge --image=busybox:1.37 --restart=Never -- sh -c \
-        'while true; do wget -qO- -T 2 http://taskboard/api/version || echo ERREUR; sleep 0.5; done' >/dev/null
+        'while true; do r=$(wget -qO- -T 2 http://taskboard/api/version 2>&1) && echo "$r" || echo "ERREUR $(date +%T) $r"; sleep 0.5; done' >/dev/null
     $kn wait --for=condition=Ready pod/charge --timeout=60s >/dev/null
     ok "boucle démarrée"
 
@@ -234,6 +234,11 @@ cmd_mesure() {
         "rollout avec preStop sleep 5 s" "${R[rollout_prestop]} s" \
         "erreurs avec preStop" "${R[erreurs_prestop]}" \
         "rollout undo depuis la v3" "${R[undo]} s"
+    echo -e "\n${CYAN}Détail des requêtes en erreur (heure, message de wget) :${NC}"
+    $kn logs charge | grep ERREUR | sed 's/^/  /' || echo "  aucune"
+    echo -e "\n${CYAN}Chronologie des pods (création, suppression) :${NC}"
+    $kn get events --sort-by=.lastTimestamp -o custom-columns=HEURE:.lastTimestamp,RAISON:.reason,OBJET:.involvedObject.name --no-headers \
+        | grep -E "Killing|Started|SuccessfulCreate|SuccessfulDelete" | sed 's/^/  /' | tail -30
     echo -e "\nNettoyage : kubectl --context $CTX delete namespace $NS"
 }
 
