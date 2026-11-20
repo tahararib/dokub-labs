@@ -1,0 +1,20 @@
+# ============================================================
+# Cluster des labs DOKUB — lu par « kind create cluster --config »
+# API de configuration de kind : kind.x-k8s.io/v1alpha4
+# ============================================================
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: dokub                        # contexte kubectl créé : kind-dokub
+nodes:
+- role: control-plane              # porte l'API server, etcd, le scheduler et les contrôleurs
+  image: kindest/node:v1.37.0      # version figée : tous les postes ont la même
+  extraPortMappings:
+  # Le NodePort 30080 du cluster est publié sur le port 8080 d'Ubuntu ;
+  # WSL2 le transmet à Windows : http://localhost:8080 dans le navigateur.
+  - containerPort: 30080
+    hostPort: 8080
+    listenAddress: "0.0.0.0"
+- role: worker                     # nœuds qui exécutent les applications
+  image: kindest/node:v1.37.0
+- role: worker
+  image: kindest/node:v1.37.0

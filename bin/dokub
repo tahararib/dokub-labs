@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# ============================================================
+# dokub — commande de l'environnement des labs DOKUB
+# Capability Forge / Tahar ARIB
+#
+#   dokub cluster up       crée le cluster des labs (3 nœuds) et ses compléments
+#   dokub cluster down     supprime le cluster
+#   dokub cluster status   état des nœuds, des compléments et des images
+#   dokub images           récupère les images externes et vérifie celles de taskboard
+#   dokub mesure           mesure démarrage, passage à l'échelle et mises à jour de taskboard
+#
+# (lab start / lab check viendront avec le carnet de labs)
+# ============================================================
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"   # racine du dépôt dokub-labs
+CLUSTER=dokub
+CTX="kind-$CLUSTER"
+CPK_NAME=cloud-provider-kind
+
+# Images externes utilisées par les labs : récupérées une fois sur le master,
+# puis présentes dans le Docker de chaque poste cloné (aucun accès Internet en session).
+EXTERNAL_IMAGES=(
+  postgres:16-alpine
+  busybox:1.37
+  nginx:stable
+  registry.k8s.io/metrics-server/metrics-server:v0.9.1
+)
+TASKBOARD_IMAGES=(taskboard:1.0.0 taskboard:2.0.0 taskboard:3.0.0)
+
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
+log()  { echo -e "\n${CYAN}$*${NC}"; }
+ok()   { echo -e "  ${GREEN}[OK] $*${NC}"; }
+warn() { echo -e "  ${YELLOW}[!]  $*${NC}"; }
+ko()   { echo -e "  ${RED}[KO] $*${NC}"; }
+die()  { ko "$*"; exit 1; }
+k()    { kubectl --context "$CTX" "$@"; }
+
+cluster_exists() { kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; }
+
+# ────────────────────────────────────────────────
+cmd_images() {
+    log "Images externes"
+    for img in "${EXTERNAL_IMAGES[@]}"; do
+        if docker image inspect "$img" >/dev/null 2>&1; then ok "$img déjà présente"
+        else docker pull -q "$img" >/dev/null && ok "$img récupérée"; fi
+    done
+    log "Images taskboard (construites par dokub/build-images.sh du dépôt taskboard)"
+    for img in "${TASKBOARD_IMAGES[@]}"; do
+        docker image inspect "$img" >/dev/null 2>&1 && ok "$img présente" \
+            || ko "$img absente : cd ~/taskboard && bash dokub/build-images.sh"
+    done
+}
+
+# ────────────────────────────────────────────────
+cmd_cluster_up() {
+    local t0=$SECONDS
+    log "[1/5] Cluster kind « $CLUSTER » (1 control plane + 2 workers)"
+    if cluster_exists; then ok "déjà créé"
+    else
+        kind create cluster --config "$ROOT/cluster/kind-dokub.yaml" --wait 180s
+    fi
+    k wait --for=condition=Ready nodes --all --timeout=180s >/dev/null
+    ok "3 nœuds Ready ($((SECONDS - t0)) s)"
+
+    log "[2/5] cloud-provider-kind (Services LoadBalancer et Gateway API)"
+    if [ "$(docker inspect -f '{{.State.Running}}' "$CPK_NAME" 2>/dev/null)" = "true" ]; then
+        ok "déjà démarré"
+    else
+        docker rm -f "$CPK_NAME" >/dev/null 2>&1 || true
+        # --restart unless-stopped : redémarre avec Docker, donc après un redémarrage de WSL
+        docker run -d --name "$CPK_NAME" --restart unless-stopped --network host \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            "$(cat "$HOME/.dokub/cloud-provider-kind-image")" >/dev/null
+        ok "démarré"
+    fi
+
+    log "[3/5] metrics-server (kubectl top, HorizontalPodAutoscaler)"
+    k apply -f "$ROOT/cluster/metrics-server.yaml" >/dev/null
+    ok "manifeste appliqué (les métriques arrivent ~60 s après le démarrage)"
+
+    log "[4/5] Chargement des images dans les nœuds (kind load)"
+    local imgs=()
+    for img in "${EXTERNAL_IMAGES[@]}" "${TASKBOARD_IMAGES[@]}"; do
+        docker image inspect "$img" >/dev/null 2>&1 && imgs+=("$img") || warn "$img absente du poste : lancer « dokub images »"
+    done
+    local t1=$SECONDS
+    kind load docker-image --name "$CLUSTER" "${imgs[@]}" >/dev/null
+    ok "${#imgs[@]} images chargées dans les 3 nœuds ($((SECONDS - t1)) s)"
+
+    log "[5/5] Vérification"
+    k rollout status deployment/metrics-server -n kube-system --timeout=180s >/dev/null && ok "metrics-server prêt"
+    ok "Cluster des labs prêt en $((SECONDS - t0)) s au total"
+}
+
+cmd_cluster_down() {
+    docker rm -f "$CPK_NAME" >/dev/null 2>&1 || true
+    kind delete cluster --name "$CLUSTER"
+    ok "Cluster $CLUSTER et cloud-provider-kind supprimés"
+}
+
+cmd_cluster_status() {
+    cluster_exists || { warn "Cluster $CLUSTER absent : dokub cluster up"; return; }
+    k get nodes -o wide
+    echo; k get deploy -n kube-system metrics-server
+    echo; docker ps --filter "name=$CPK_NAME" --format 'cloud-provider-kind : {{.Status}}'
+    echo; echo "Images taskboard dans le nœud dokub-worker :"
+    docker exec dokub-worker crictl images 2>/dev/null | grep -E "IMAGE|taskboard" || true
+}
+
+# ────────────────────────────────────────────────
+# Mesure : rejoue les mécanismes des labs 2, 4, 7 et 9 et chronomètre chaque étape.
+# Résultats utilisés pour les sorties attendues et les délais du carnet.
+cmd_mesure() {
+    cluster_exists || die "Cluster absent : dokub cluster up"
+    local NS=mesure
+    declare -A R   # résultats
+    k delete namespace "$NS" --ignore-not-found --wait=true >/dev/null
+    k create namespace "$NS" >/dev/null
+    local kn="kubectl --context $CTX -n $NS"
+
+    log "[1/7] PostgreSQL"
+    local t=$SECONDS
+    $kn apply -f "$ROOT/manifests/mesure/postgres.yaml" >/dev/null
+    $kn rollout status deploy/postgres --timeout=180s >/dev/null
+    R[postgres]=$((SECONDS - t)); ok "PostgreSQL prêt en ${R[postgres]} s"
+
+    log "[2/7] taskboard 1.0.0, 1 réplica (premier démarrage d'une JVM)"
+    t=$SECONDS
+    $kn apply -f "$ROOT/manifests/mesure/taskboard.yaml" >/dev/null
+    $kn rollout status deploy/taskboard --timeout=300s >/dev/null
+    R[demarrage]=$((SECONDS - t)); ok "1 pod prêt en ${R[demarrage]} s"
+    $kn logs deploy/taskboard | grep -o "Started TaskboardApplication in [0-9.]* seconds" | sed 's/^/  Spring : /' || true
+
+    log "[3/7] Boucle de requêtes en continu (pod « charge », 2 requêtes/s)"
+    $kn run charge --image=busybox:1.37 --restart=Never -- sh -c \
+        'while true; do wget -qO- -T 2 http://taskboard/api/version || echo ERREUR; sleep 0.5; done' >/dev/null
+    $kn wait --for=condition=Ready pod/charge --timeout=60s >/dev/null
+    ok "boucle démarrée"
+
+    log "[4/7] Passage à 3 réplicas"
+    t=$SECONDS
+    $kn scale deploy/taskboard --replicas=3 >/dev/null
+    $kn rollout status deploy/taskboard --timeout=300s >/dev/null
+    R[scale]=$((SECONDS - t)); ok "3 pods prêts en ${R[scale]} s"
+    $kn get pods -l app=taskboard -o wide --no-headers | awk '{print "  " $1 " → " $7}'
+
+    log "[5/7] Mise à jour progressive vers 2.0.0 (maxSurge 1, maxUnavailable 0)"
+    t=$SECONDS
+    $kn set image deploy/taskboard taskboard=taskboard:2.0.0 >/dev/null
+    $kn rollout status deploy/taskboard --timeout=600s >/dev/null
+    R[rollout]=$((SECONDS - t)); ok "rollout terminé en ${R[rollout]} s"
+    sleep 3
+    R[erreurs]=$($kn logs charge | grep -c ERREUR || true)
+    [ "${R[erreurs]}" -eq 0 ] && ok "requêtes en erreur pendant le rollout : 0" \
+                              || warn "requêtes en erreur pendant le rollout : ${R[erreurs]}"
+    echo "  Réponses par version depuis le début :"
+    $kn logs charge | grep -o "version=[0-9.]*" | sort | uniq -c | sed 's/^/   /'
+
+    log "[6/7] Version 3.0.0 défaillante : le rollout doit rester bloqué"
+    $kn set image deploy/taskboard taskboard=taskboard:3.0.0 >/dev/null
+    if $kn rollout status deploy/taskboard --timeout=90s >/dev/null 2>&1; then
+        ko "le rollout v3 s'est terminé : la readiness n'a pas bloqué"
+    else
+        ok "rollout bloqué après 90 s, comme attendu"
+    fi
+    $kn get pods -l app=taskboard --no-headers | awk '{print "  " $1 "  READY " $2 "  " $3}'
+    local p3; p3=$($kn get pods -l app=taskboard -o jsonpath='{range .items[*]}{.metadata.name} {.spec.containers[0].image}{"\n"}{end}' | awk '$2=="taskboard:3.0.0"{print $1; exit}')
+    if [ -n "$p3" ]; then
+        echo "  Readiness du pod $p3 :"
+        $kn exec "$p3" -- wget -qO- localhost:8080/actuator/health/readiness 2>/dev/null | sed 's/^/   /' || true
+        echo
+    fi
+    R[erreurs3]=$($kn logs charge | grep -c ERREUR || true)
+    ok "requêtes en erreur au total (v1 → v2 → v3 bloquée) : ${R[erreurs3]}"
+    t=$SECONDS
+    $kn rollout undo deploy/taskboard >/dev/null
+    $kn rollout status deploy/taskboard --timeout=300s >/dev/null
+    R[undo]=$((SECONDS - t)); ok "rollout undo terminé en ${R[undo]} s"
+
+    log "[7/7] Consommation mesurée (metrics-server)"
+    if $kn top pods 2>/dev/null; then :; else warn "métriques pas encore disponibles (attendre 60 s puis : kubectl top pods -n $NS)"; fi
+    echo; kubectl --context "$CTX" top nodes 2>/dev/null || true
+
+    echo -e "\n${CYAN}Résumé à transmettre :${NC}"
+    printf "  %-38s %s\n" "PostgreSQL prêt" "${R[postgres]} s" \
+        "taskboard, 1er pod prêt" "${R[demarrage]} s" \
+        "passage à 3 réplicas" "${R[scale]} s" \
+        "rollout 1.0.0 → 2.0.0 (3 pods)" "${R[rollout]} s" \
+        "erreurs pendant ce rollout" "${R[erreurs]}" \
+        "rollout undo depuis la v3" "${R[undo]} s"
+    echo -e "\nNettoyage : kubectl --context $CTX delete namespace $NS"
+}
+
+# ────────────────────────────────────────────────
+case "${1:-} ${2:-}" in
+    "cluster up")     cmd_cluster_up ;;
+    "cluster down")   cmd_cluster_down ;;
+    "cluster status") cmd_cluster_status ;;
+    "images "*)       cmd_images ;;
+    "mesure "*)       cmd_mesure ;;
+    *) sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

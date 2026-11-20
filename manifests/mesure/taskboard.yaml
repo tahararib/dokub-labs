@@ -1,0 +1,51 @@
+# taskboard pour la mesure de démarrage : réglages de départ des labs 4 et 7
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: taskboard}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1                   # un seul pod en plus pendant la mise à jour : une JVM démarre à la fois
+      maxUnavailable: 0             # aucun pod prêt n'est retiré avant que son remplaçant soit prêt
+  template:
+    metadata:
+      labels: {app: taskboard}
+    spec:
+      containers:
+      - name: taskboard
+        image: taskboard:1.0.0
+        imagePullPolicy: IfNotPresent   # l'image est déjà dans le nœud (kind load) : aucun registre
+        env:
+        - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres:5432/taskboard"}
+        - {name: SPRING_DATASOURCE_USERNAME, value: taskboard}
+        - {name: SPRING_DATASOURCE_PASSWORD, value: taskboard}
+        ports:
+        - containerPort: 8080
+        startupProbe:               # laisse jusqu'à 180 s (2 s × 90) à la JVM pour démarrer
+          httpGet: {path: /actuator/health/liveness, port: 8080}
+          periodSeconds: 2
+          failureThreshold: 90
+        readinessProbe:             # reçoit du trafic seulement quand Spring et ses dépendances sont prêts
+          httpGet: {path: /actuator/health/readiness, port: 8080}
+          periodSeconds: 5
+        livenessProbe:              # redémarre le conteneur s'il ne répond plus
+          httpGet: {path: /actuator/health/liveness, port: 8080}
+          periodSeconds: 10
+        resources:
+          requests: {cpu: 100m, memory: 384Mi}   # ce que le scheduler réserve sur le nœud
+          limits: {memory: 512Mi}                # pas de limite CPU : elle ralentirait le démarrage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: taskboard
+spec:
+  selector: {app: taskboard}
+  ports:
+  - port: 80
+    targetPort: 8080

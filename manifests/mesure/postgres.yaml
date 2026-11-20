@@ -1,0 +1,37 @@
+# PostgreSQL minimal pour la mesure de démarrage (sans volume : version « dette » du lab 2)
+apiVersion: apps/v1                 # groupe apps : Deployments, StatefulSets, DaemonSets
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}    # le Deployment gère les pods qui portent ce label
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        env:                        # identifiants en clair : corrigé au lab 5 (Secret)
+        - {name: POSTGRES_DB, value: taskboard}
+        - {name: POSTGRES_USER, value: taskboard}
+        - {name: POSTGRES_PASSWORD, value: taskboard}
+        ports:
+        - containerPort: 5432
+        readinessProbe:             # prêt quand la base accepte les connexions
+          exec:
+            command: ["pg_isready", "-U", "taskboard", "-d", "taskboard"]
+          periodSeconds: 3
+        resources:
+          requests: {cpu: 50m, memory: 64Mi}
+---
+apiVersion: v1                      # groupe « core » : Pods, Services, ConfigMaps…
+kind: Service
+metadata:
+  name: postgres                    # nom DNS dans le namespace : postgres
+spec:
+  selector: {app: postgres}
+  ports:
+  - port: 5432
