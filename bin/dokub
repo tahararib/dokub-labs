@@ -8,8 +8,8 @@
 #   dokub cluster status   état des nœuds, des compléments et des images
 #   dokub images           récupère les images externes et vérifie celles de taskboard
 #   dokub mesure           mesure démarrage, passage à l'échelle et mises à jour de taskboard
-#
-# (lab start / lab check viendront avec le carnet de labs)
+#   dokub lab start NN     remet le cluster dans l'état de début du lab NN
+#   dokub lab check NN     vérifie les points de contrôle du lab NN
 # ============================================================
 set -euo pipefail
 
@@ -71,7 +71,7 @@ cmd_images() {
         if docker image inspect "$img" >/dev/null 2>&1; then ok "$img déjà présente"
         else docker pull -q "$img" >/dev/null && ok "$img récupérée"; fi
     done
-    log "Images taskboard (construites par dokub/build-images.sh du dépôt taskboard)"
+    log "Images taskboard"
     for img in "${TASKBOARD_IMAGES[@]}"; do
         docker image inspect "$img" >/dev/null 2>&1 && ok "$img présente" \
             || ko "$img absente : cd ~/taskboard && bash dokub/build-images.sh"
@@ -303,6 +303,89 @@ cmd_diag_rollout() {
     echo -e "\nNettoyage : kubectl --context $CTX delete namespace $NS"
 }
 
+# ════════════════════════════════════════════════════════════
+# LABS : « dokub lab start NN » remet le cluster dans l'état de début du lab NN ;
+#        « dokub lab check NN » vérifie les points de contrôle et affiche
+#        une ligne à coller dans le chat.
+# ════════════════════════════════════════════════════════════
+CHK_OK=0; CHK_N=0
+chk() {   # chk "<libellé>" "<condition shell>" "<indice si échec>"
+    CHK_N=$((CHK_N + 1))
+    if eval "$2" >/dev/null 2>&1; then ok "$1"; CHK_OK=$((CHK_OK + 1))
+    else ko "$1"; [ -n "${3:-}" ] && echo "       → $3"; fi
+}
+chk_fin() {
+    local l
+    l="LAB $1 · $CHK_OK/$CHK_N · $(hostname) · $(date +%H:%M)"
+    echo
+    if [ "$CHK_OK" -eq "$CHK_N" ]; then echo -e "${GREEN}${l}${NC}"; else echo -e "${YELLOW}${l}${NC}"; fi
+    echo "  ↑ collez cette ligne dans le chat"
+}
+lb_ip() { k -n taskboard get svc taskboard-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null; }
+avail() { k -n "$1" get deploy "$2" -o jsonpath='{.status.availableReplicas}' 2>/dev/null; }
+
+cmd_lab_check() {
+    local n=${1:-}
+    log "Points de contrôle du lab $n"
+    case $n in
+      00)
+        chk "image taskboard:1.0.0 présente sur le poste" "docker image inspect taskboard:1.0.0" "dokub images"
+        chk "image postgres:16-alpine présente sur le poste" "docker image inspect postgres:16-alpine" "dokub images"
+        chk "pile docker compose du lab 0 arrêtée" "[ -z \"\$(docker compose -p lab00 ps -q)\" ]" "cd ~/dokub-labs/labs/lab00 && docker compose down"
+        ;;
+      01)
+        chk "cluster kind « dokub » créé" "cluster_exists" "kind create cluster --config ~/dokub-labs/cluster/kind-dokub.yaml"
+        chk "3 nœuds Ready" "[ \$(k get nodes --no-headers | grep -c ' Ready ') -eq 3 ]" "kubectl get nodes ; kubectl describe node <nœud>"
+        chk "API server en version v1.37.0" "k version -o json | jq -r .serverVersion.gitVersion | grep -qx v1.37.0"
+        chk "scheduler de nouveau en marche" "k -n kube-system get pod kube-scheduler-dokub-control-plane -o jsonpath='{.status.phase}' | grep -qx Running" "remettre kube-scheduler.yaml dans /etc/kubernetes/manifests (étape 7)"
+        chk "metrics-server disponible" "[ \"\$(avail kube-system metrics-server)\" = 1 ]" "dokub cluster up"
+        chk "images des labs chargées dans les nœuds" "docker exec dokub-worker crictl inspecti -q taskboard:1.0.0" "dokub cluster up"
+        chk "pod de test supprimé" "! k -n default get pod test" "kubectl delete pod test -n default"
+        ;;
+      02)
+        chk "namespace taskboard" "k get namespace taskboard"
+        chk "contexte courant sur le namespace taskboard" "[ \"\$(kubectl config view --minify -o jsonpath='{..namespace}')\" = taskboard ]" "kubectl config set-context --current --namespace=taskboard"
+        chk "PostgreSQL disponible (1/1)" "[ \"\$(avail taskboard postgres)\" = 1 ]" "kubectl logs deploy/postgres"
+        chk "taskboard disponible (3/3)" "[ \"\$(avail taskboard taskboard)\" = 3 ]" "kubectl get pods ; kubectl describe pod <pod>"
+        chk "Service LoadBalancer : réponse de /api/version" "curl -fsS -m 5 http://\$(lb_ip)/api/version | grep -q version=" "kubectl get svc taskboard-lb"
+        chk "NodePort 30080 : réponse sur localhost:8080" "curl -fsS -m 5 http://localhost:8080/api/version | grep -q version=" "kubectl get svc taskboard-np"
+        ;;
+      03)
+        chk "Deployment piloté par un fichier (kubectl apply)" "k -n taskboard get deploy taskboard -o jsonpath='{.metadata.annotations.kubectl\.kubernetes\.io/last-applied-configuration}' | grep -q ." "kubectl apply -f taskboard.yaml"
+        chk "init container attente-postgres" "k -n taskboard get deploy taskboard -o jsonpath='{.spec.template.spec.initContainers[0].name}' | grep -qx attente-postgres" "étape 6"
+        chk "taskboard disponible (3/3)" "[ \"\$(avail taskboard taskboard)\" = 3 ]"
+        chk "PostgreSQL disponible (1/1)" "[ \"\$(avail taskboard postgres)\" = 1 ]" "kubectl scale deploy/postgres --replicas=1"
+        chk "aucun pod orphelin (app=hors-service)" "[ -z \"\$(k -n taskboard get pods -l app=hors-service -o name)\" ]" "kubectl delete pod -l app=hors-service"
+        ;;
+      *) die "Lab inconnu : $n (labs disponibles : 00 01 02 03)" ;;
+    esac
+    chk_fin "$n"
+}
+
+cmd_lab_start() {
+    local n=${1:-}
+    case $n in
+      00) cmd_images; ok "Prêt pour le lab 0" ;;
+      01) if cluster_exists; then warn "Le cluster « dokub » existe déjà. Pour refaire le lab 1 depuis le début : dokub cluster down"
+          else ok "Prêt pour le lab 1 : aucun cluster, à vous de le créer"; fi ;;
+      02) cmd_cluster_up
+          k delete namespace taskboard --ignore-not-found --wait=true >/dev/null
+          kubectl config set-context "$CTX" --namespace=default >/dev/null
+          ok "Prêt pour le lab 2 : cluster complet, namespace taskboard absent" ;;
+      03|04)
+          cmd_cluster_up
+          log "État de fin du lab $(printf '%02d' $((10#$n - 1)))"
+          k apply -f "$ROOT/solutions/lab02/taskboard.yaml" >/dev/null
+          [ "$n" = 04 ] && k apply -f "$ROOT/solutions/lab03/taskboard.yaml" >/dev/null
+          k -n taskboard delete pod -l app=hors-service --ignore-not-found >/dev/null
+          kubectl config set-context "$CTX" --namespace=taskboard >/dev/null
+          k -n taskboard rollout status deploy/postgres --timeout=180s >/dev/null
+          k -n taskboard rollout status deploy/taskboard --timeout=300s >/dev/null
+          ok "Prêt pour le lab $n : namespace taskboard en place, contexte sur taskboard" ;;
+      *) die "Lab inconnu : $n (labs disponibles : 00 01 02 03 04)" ;;
+    esac
+}
+
 # ────────────────────────────────────────────────
 case "${1:-} ${2:-}" in
     "cluster up")     cmd_cluster_up ;;
@@ -311,5 +394,7 @@ case "${1:-} ${2:-}" in
     "images "*)       cmd_images ;;
     "mesure "*)       cmd_mesure ;;
     "diag-rollout "*) cmd_diag_rollout ;;
-    *) sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    "lab start")      cmd_lab_start "${3:-}" ;;
+    "lab check")      cmd_lab_check "${3:-}" ;;
+    *) sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

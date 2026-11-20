@@ -1,0 +1,28 @@
+# ============================================================
+# Lab 0 — taskboard sur UN seul hôte, sans orchestrateur
+# Lancement : docker compose up -d   (dans ce dossier)
+# ============================================================
+name: lab00                          # préfixe des conteneurs : lab00-app-1, lab00-db-1
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: taskboard
+      POSTGRES_USER: taskboard
+      POSTGRES_PASSWORD: taskboard   # mot de passe de formation, jamais en production
+    healthcheck:                     # Docker attend que la base accepte les connexions
+      test: ["CMD-SHELL", "pg_isready -U taskboard -d taskboard"]
+      interval: 3s
+      retries: 20
+  app:
+    image: taskboard:1.0.0           # image construite sur le poste (aucun téléchargement)
+    restart: unless-stopped          # Docker relance le conteneur s'il s'arrête
+    ports:
+      - "8081:8080"                  # port 8081 du poste → port 8080 du conteneur
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/taskboard
+      SPRING_DATASOURCE_USERNAME: taskboard
+      SPRING_DATASOURCE_PASSWORD: taskboard
+    depends_on:
+      db:
+        condition: service_healthy
