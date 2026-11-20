@@ -243,11 +243,69 @@ cmd_mesure() {
 }
 
 # ────────────────────────────────────────────────
+# Test comparatif : d'où viennent les requêtes perdues pendant un rollout ?
+# 3 configurations × 3 rollouts (bascule 1.0.0 ↔ 2.0.0), même boucle de requêtes.
+#   A : configuration actuelle (arrêt « graceful » de Spring, sans preStop)
+#   B : A + preStop sleep 10 s
+#   C : B + arrêt immédiat de Spring (SERVER_SHUTDOWN=immediate)
+cmd_diag_rollout() {
+    cluster_exists || die "Cluster absent : dokub cluster up"
+    local NS=diag kn="kubectl --context $CTX -n diag"
+    k delete namespace "$NS" --ignore-not-found --wait=true >/dev/null
+    k create namespace "$NS" >/dev/null
+    log "Mise en place (PostgreSQL, taskboard × 3, boucle de requêtes)"
+    $kn apply -f "$ROOT/manifests/mesure/postgres.yaml" >/dev/null
+    $kn rollout status deploy/postgres --timeout=180s >/dev/null
+    $kn apply -f "$ROOT/manifests/mesure/taskboard.yaml" >/dev/null
+    $kn scale deploy/taskboard --replicas=3 >/dev/null
+    $kn rollout status deploy/taskboard --timeout=300s >/dev/null
+    $kn run charge --image=busybox:1.37 --restart=Never -- sh -c \
+        'while true; do s=$(date +%s); r=$(wget -qO- -T 10 http://taskboard/api/version 2>&1); c=$?; d=$(( $(date +%s) - s )); if [ $c -ne 0 ]; then echo "ERREUR $(date +%T) ${d}s $r"; else echo "OK $(date +%T) $r"; fi; sleep 0.5; done' >/dev/null
+    $kn wait --for=condition=Ready pod/charge --timeout=60s >/dev/null
+    echo "  kube-proxy : mode $(k -n kube-system get cm kube-proxy -o jsonpath='{.data.config\.conf}' | awk '/^mode:/{print $2}')"
+
+    local img=2.0.0 cfg n e0 e1
+    declare -A RES
+    for cfg in A B C; do
+        log "Configuration $cfg"
+        case $cfg in
+          B) $kn patch deploy/taskboard --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/0/lifecycle","value":{"preStop":{"sleep":{"seconds":10}}}}]' >/dev/null ;;
+          C) $kn set env deploy/taskboard SERVER_SHUTDOWN=immediate >/dev/null ;;
+        esac
+        $kn rollout status deploy/taskboard --timeout=600s >/dev/null
+        RES[$cfg]=""
+        for n in 1 2 3; do
+            sleep 5
+            e0=$($kn logs charge | grep -c ERREUR || true)
+            $kn set image deploy/taskboard taskboard=taskboard:$img >/dev/null
+            $kn rollout status deploy/taskboard --timeout=600s >/dev/null
+            sleep 12   # laisse expirer les requêtes en cours (délai 10 s)
+            e1=$($kn logs charge | grep -c ERREUR || true)
+            echo "  rollout $n (→ $img) : $((e1 - e0)) erreur(s)"
+            RES[$cfg]+="$((e1 - e0)) "
+            [ "$img" = 2.0.0 ] && img=1.0.0 || img=2.0.0
+        done
+    done
+
+    echo -e "\n${CYAN}Résumé (erreurs par rollout) :${NC}"
+    echo "  A  graceful, sans preStop        : ${RES[A]}"
+    echo "  B  graceful + preStop 10 s       : ${RES[B]}"
+    echo "  C  immédiat + preStop 10 s       : ${RES[C]}"
+    echo -e "\n${CYAN}Erreurs (heure de fin, durée) :${NC}"
+    $kn logs charge | grep ERREUR | sed 's/^/  /' || echo "  aucune"
+    echo -e "\n${CYAN}Arrêts et démarrages de pods (UTC) :${NC}"
+    $kn get events --sort-by=.lastTimestamp -o custom-columns=HEURE:.lastTimestamp,RAISON:.reason,OBJET:.involvedObject.name --no-headers \
+        | grep -E " (Killing|Started) " | grep -v charge | sed 's/^/  /'
+    echo -e "\nNettoyage : kubectl --context $CTX delete namespace $NS"
+}
+
+# ────────────────────────────────────────────────
 case "${1:-} ${2:-}" in
     "cluster up")     cmd_cluster_up ;;
     "cluster down")   cmd_cluster_down ;;
     "cluster status") cmd_cluster_status ;;
     "images "*)       cmd_images ;;
     "mesure "*)       cmd_mesure ;;
+    "diag-rollout "*) cmd_diag_rollout ;;
     *) sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
