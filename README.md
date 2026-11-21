@@ -43,3 +43,18 @@ Scripts dans `master/` :
 | NodePort publié (`localhost:8080`) | oui | oui |
 | `kubectl port-forward --address 0.0.0.0` | oui | oui (`localhost:<port>`) |
 | Adresse LoadBalancer / Gateway (`172.18.x.x`) | oui | non : relais `socat` vers un port localhost |
+
+## Accès Internet nécessaires depuis Ubuntu (session et préparation)
+
+| Site | Pour |
+|---|---|
+| `dl.k8s.io` | kubectl (lab 1) |
+| `kind.sigs.k8s.io`, `github.com`, `objects.githubusercontent.com` | kind (lab 1) |
+| `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` | busybox, postgres, tirés par les nœuds (limite anonyme de Docker Hub : à surveiller si tous les postes sortent par la même adresse) |
+| `registry.k8s.io` | metrics-server, cloud-provider-kind |
+| `quay.io` | node-exporter (lab 8) |
+| `raw.githubusercontent.com` | script d'installation de Helm (lab 12) |
+| `get.helm.sh` | binaire Helm (lab 12) |
+| `kubernetes-sigs.github.io`, `ghcr.io` | chart et image Headlamp (lab 12) |
+
+Les autres scripts du formateur sont dans `formateur/` : démo kubeadm, contenu des slides « D'où vient un cluster ».
