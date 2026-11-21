@@ -373,7 +373,7 @@ cmd_lab_check() {
         chk "nœuds configurés pour le registre" "(for n in \$(kind get nodes --name dokub); do docker exec \$n test -f /etc/containerd/certs.d/localhost:5001/hosts.toml || exit 1; done)" "étape 6, boucle hosts.toml"
         chk "3 images taskboard dans le registre" "[ \$(curl -fsS http://localhost:5001/v2/taskboard/tags/list | jq '.tags | length') -eq 3 ]" "étape 6, suite"
         chk "scheduler de nouveau en marche" "k -n kube-system get pod kube-scheduler-dokub-control-plane -o jsonpath='{.status.phase}' | grep -qx Running" "remettre kube-scheduler.yaml dans /etc/kubernetes/manifests (panne, c)"
-        chk "pod de test supprimé" "! k -n default get pod test" "kubectl delete pod test -n default"
+        chk "pod test et Deployment essai supprimés" "! k -n default get pod test && ! k -n default get deployment essai" "kubectl -n default delete pod test ; kubectl -n default delete deployment essai"
         ;;
       02)
         chk "namespace taskboard" "k get namespace taskboard"
