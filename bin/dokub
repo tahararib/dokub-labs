@@ -23,10 +23,16 @@ CPK_NAME=cloud-provider-kind
 # Avec Internet en session, les nœuds téléchargent eux-mêmes les images publiques ;
 # on ne garde sur le poste que celles qui évitent une attente au lab 0 et au lab 1.
 CPK_IMAGE=registry.k8s.io/cloud-provider-kind/cloud-controller-manager:v0.12.0
+# Registre d'images local (lab 1, étape 6) : les nœuds y tirent les images taskboard
+REG_NAME=kind-registry
+REG_PORT=5001
+REG="localhost:$REG_PORT"
+REG_IMAGE=registry:3
 EXTERNAL_IMAGES=(
   postgres:16-alpine
   kindest/node:v1.37.0
   "$CPK_IMAGE"
+  "$REG_IMAGE"
 )
 TASKBOARD_IMAGES=(taskboard:1.0.0 taskboard:2.0.0 taskboard:3.0.0)
 
@@ -46,22 +52,30 @@ need_tools() {
         || die "kubectl ou kind absent : installez-les (lab 1, étapes 1 et 2)"
 }
 
-# Copie une image du Docker du poste vers le containerd de chaque nœud kind.
-# On n'utilise pas « kind load docker-image » : il importe avec --all-platforms, et une
-# image multi-plateforme récupérée par docker pull (postgres, nginx…) ne contient que les
-# couches linux/amd64 ; l'import échoue alors sur « content digest … not found ».
-# Ici on exporte et on importe uniquement la plateforme linux/amd64.
-load_image() {
-    local img=$1 node
-    for node in $(kind get nodes --name "$CLUSTER"); do
-        if docker exec "$node" crictl inspecti -q "$img" >/dev/null 2>&1; then
-            echo "    $img : déjà dans $node"; continue
-        fi
-        { docker save --platform linux/amd64 "$img" 2>/dev/null || docker save "$img"; } \
-          | docker exec -i "$node" ctr --namespace=k8s.io images import \
-                --platform linux/amd64 --digests --snapshotter=overlayfs - >/dev/null \
-          || die "échec du chargement de $img dans $node"
-        echo "    $img → $node"
+# Registre local : conteneur registry:3 publié sur localhost:5001, relié au réseau « kind » ;
+# chaque nœud reçoit un hosts.toml qui redirige localhost:5001 vers http://kind-registry:5000
+# (dans un nœud, « localhost » désigne le nœud lui-même, pas le poste).
+setup_registry() {
+    if [ "$(docker inspect -f '{{.State.Running}}' "$REG_NAME" 2>/dev/null)" != "true" ]; then
+        docker rm -f "$REG_NAME" >/dev/null 2>&1 || true
+        docker run -d --name "$REG_NAME" --restart=always -p "127.0.0.1:$REG_PORT:5000" "$REG_IMAGE" >/dev/null
+    fi
+    docker network connect kind "$REG_NAME" >/dev/null 2>&1 || true   # déjà relié : sans effet
+    local d="/etc/containerd/certs.d/$REG" n
+    for n in $(kind get nodes --name "$CLUSTER"); do
+        docker exec "$n" mkdir -p "$d"
+        echo "[host.\"http://$REG_NAME:5000\"]" | docker exec -i "$n" tee "$d/hosts.toml" >/dev/null
+    done
+}
+
+# Étiquette et pousse les images taskboard du poste dans le registre local
+push_images() {
+    local v
+    for v in 1.0.0 2.0.0 3.0.0; do
+        docker image inspect "taskboard:$v" >/dev/null 2>&1 || die "taskboard:$v absente du poste"
+        docker tag "taskboard:$v" "$REG/taskboard:$v"
+        docker push -q "$REG/taskboard:$v" >/dev/null
+        echo "    $REG/taskboard:$v poussée"
     done
 }
 
@@ -114,13 +128,10 @@ cmd_cluster_up() {
     k apply -f "$ROOT/cluster/metrics-server.yaml" >/dev/null
     ok "manifeste appliqué (les métriques arrivent ~60 s après le démarrage)"
 
-    log "[4/5] Chargement des images taskboard dans les nœuds"
-    local t1=$SECONDS
-    for img in "${TASKBOARD_IMAGES[@]}"; do
-        if docker image inspect "$img" >/dev/null 2>&1; then load_image "$img"
-        else warn "$img absente du poste : lancer « dokub images »"; fi
-    done
-    ok "Images taskboard chargées dans les 3 nœuds ($((SECONDS - t1)) s)"
+    log "[4/5] Registre local et images taskboard"
+    setup_registry
+    push_images
+    ok "Registre $REG prêt, nœuds configurés, images taskboard poussées"
 
     log "[5/5] Vérification"
     k rollout status deployment/metrics-server -n kube-system --timeout=180s >/dev/null && ok "metrics-server prêt"
@@ -130,7 +141,7 @@ cmd_cluster_up() {
 cmd_cluster_down() {
     docker rm -f "$CPK_NAME" >/dev/null 2>&1 || true
     kind delete cluster --name "$CLUSTER"
-    ok "Cluster $CLUSTER et cloud-provider-kind supprimés"
+    ok "Cluster $CLUSTER et cloud-provider-kind supprimés (le registre $REG est conservé)"
 }
 
 cmd_cluster_status() {
@@ -138,8 +149,8 @@ cmd_cluster_status() {
     k get nodes -o wide
     echo; k get deploy -n kube-system metrics-server
     echo; docker ps --filter "name=$CPK_NAME" --format 'cloud-provider-kind : {{.Status}}'
-    echo; echo "Images taskboard dans le nœud dokub-worker :"
-    docker exec dokub-worker crictl images 2>/dev/null | grep -E "IMAGE|taskboard" || true
+    echo; docker ps --filter "name=$REG_NAME" --format 'registre {{.Names}} : {{.Status}}'
+    echo "Images du registre : $(curl -fsS "http://$REG/v2/taskboard/tags/list" 2>/dev/null || echo 'registre absent')"
 }
 
 # ────────────────────────────────────────────────
@@ -181,7 +192,7 @@ cmd_mesure() {
 
     log "[5/7] Mise à jour progressive vers 2.0.0 (maxSurge 1, maxUnavailable 0)"
     t=$SECONDS
-    $kn set image deploy/taskboard taskboard=taskboard:2.0.0 >/dev/null
+    $kn set image deploy/taskboard taskboard=$REG/taskboard:2.0.0 >/dev/null
     $kn rollout status deploy/taskboard --timeout=600s >/dev/null
     R[rollout]=$((SECONDS - t)); ok "rollout terminé en ${R[rollout]} s"
     sleep 3
@@ -203,7 +214,7 @@ cmd_mesure() {
     sleep 12   # laisse expirer les requêtes bloquées sur les pods arrêtés sans preStop
     local avant; avant=$($kn logs charge | grep -c ERREUR || true)
     t=$SECONDS
-    $kn set image deploy/taskboard taskboard=taskboard:1.0.0 >/dev/null
+    $kn set image deploy/taskboard taskboard=$REG/taskboard:1.0.0 >/dev/null
     $kn rollout status deploy/taskboard --timeout=600s >/dev/null
     R[rollout_prestop]=$((SECONDS - t))
     sleep 12
@@ -211,14 +222,14 @@ cmd_mesure() {
     ok "rollout 2.0.0 → 1.0.0 avec preStop terminé en ${R[rollout_prestop]} s ; requêtes en erreur : ${R[erreurs_prestop]}"
 
     log "[6/7] Version 3.0.0 défaillante : le rollout doit rester bloqué"
-    $kn set image deploy/taskboard taskboard=taskboard:3.0.0 >/dev/null
+    $kn set image deploy/taskboard taskboard=$REG/taskboard:3.0.0 >/dev/null
     if $kn rollout status deploy/taskboard --timeout=90s >/dev/null 2>&1; then
         ko "le rollout v3 s'est terminé : la readiness n'a pas bloqué"
     else
         ok "rollout bloqué après 90 s, comme attendu"
     fi
     $kn get pods -l app=taskboard --no-headers | awk '{print "  " $1 "  READY " $2 "  " $3}'
-    local p3; p3=$($kn get pods -l app=taskboard -o jsonpath='{range .items[*]}{.metadata.name} {.spec.containers[0].image}{"\n"}{end}' | awk '$2=="taskboard:3.0.0"{print $1; exit}')
+    local p3; p3=$($kn get pods -l app=taskboard -o jsonpath='{range .items[*]}{.metadata.name} {.spec.containers[0].image}{"\n"}{end}' | awk '$2=="localhost:5001/taskboard:3.0.0"{print $1; exit}')
     if [ -n "$p3" ]; then
         # La readiness DOWN répond HTTP 503 : on lit la cause dans les événements et les logs
         echo "  Événements du pod $p3 :"
@@ -290,7 +301,7 @@ cmd_diag_rollout() {
         for n in 1 2 3; do
             sleep 5
             e0=$($kn logs charge | grep -c ERREUR || true)
-            $kn set image deploy/taskboard taskboard=taskboard:$img >/dev/null
+            $kn set image deploy/taskboard taskboard=$REG/taskboard:$img >/dev/null
             $kn rollout status deploy/taskboard --timeout=600s >/dev/null
             sleep 12   # laisse expirer les requêtes en cours (délai 10 s)
             e1=$($kn logs charge | grep -c ERREUR || true)
@@ -350,7 +361,9 @@ cmd_lab_check() {
         chk "API server en version v1.37.0" "k version -o json | jq -r .serverVersion.gitVersion | grep -qx v1.37.0"
         chk "cloud-provider-kind démarré" "[ \"\$(docker inspect -f '{{.State.Running}}' cloud-provider-kind)\" = true ]" "étape 5"
         chk "metrics-server disponible" "[ \"\$(avail kube-system metrics-server)\" = 1 ]" "étape 5, suite"
-        chk "images taskboard chargées dans les nœuds" "(for n in \$(kind get nodes --name dokub); do for v in 1.0.0 2.0.0 3.0.0; do docker exec \$n crictl inspecti -q taskboard:\$v >/dev/null || exit 1; done; done)" "étape 6"
+        chk "registre local démarré" "[ \"\$(docker inspect -f '{{.State.Running}}' kind-registry)\" = true ]" "étape 6"
+        chk "nœuds configurés pour le registre" "(for n in \$(kind get nodes --name dokub); do docker exec \$n test -f /etc/containerd/certs.d/localhost:5001/hosts.toml || exit 1; done)" "étape 6, boucle hosts.toml"
+        chk "3 images taskboard dans le registre" "[ \$(curl -fsS http://localhost:5001/v2/taskboard/tags/list | jq '.tags | length') -eq 3 ]" "étape 6, suite"
         chk "scheduler de nouveau en marche" "k -n kube-system get pod kube-scheduler-dokub-control-plane -o jsonpath='{.status.phase}' | grep -qx Running" "remettre kube-scheduler.yaml dans /etc/kubernetes/manifests (panne, c)"
         chk "pod de test supprimé" "! k -n default get pod test" "kubectl delete pod test -n default"
         ;;

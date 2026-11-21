@@ -31,7 +31,7 @@ spec:
           done
       containers:
       - name: taskboard
-        image: taskboard:1.0.0
+        image: localhost:5001/taskboard:1.0.0
         ports:
         - containerPort: 8080     # documentaire : n'ouvre rien, informe les lecteurs et les outils
         env:                      # variables lues par Spring Boot au démarrage

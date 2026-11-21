@@ -18,7 +18,7 @@ L'application des labs est **taskboard**, branche `dokub` du dépôt `tahararib/
 |---|---|
 | Windows Terminal, VS Code, WSL2, Ubuntu 24.04 | installer kubectl et kind (lab 1) |
 | Docker CE, git, curl, jq, yq, socat | créer le cluster (lab 1) |
-| images postgres, kindest/node, cloud-provider-kind, taskboard 1.0/2.0/3.0 | démarrer cloud-provider-kind, installer metrics-server, charger les images taskboard (lab 1) |
+| images postgres, kindest/node, cloud-provider-kind, registry:3, taskboard 1.0/2.0/3.0 | démarrer cloud-provider-kind et un registre local, installer metrics-server, étiqueter et pousser les images taskboard (lab 1) |
 | dépôt `~/dokub-labs`, commande `dokub` | installer Helm (lab 12) |
 
 `dokub` ne remplace aucun geste du carnet : `lab check` vérifie, `lab start` remet un participant bloqué en selle.

@@ -18,8 +18,8 @@ spec:
     spec:
       containers:
       - name: taskboard
-        image: taskboard:1.0.0
-        imagePullPolicy: IfNotPresent   # l'image est déjà dans le nœud (kind load) : aucun registre
+        image: localhost:5001/taskboard:1.0.0
+        imagePullPolicy: IfNotPresent   # tirée du registre local au premier démarrage sur le nœud
         env:
         - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres:5432/taskboard"}
         - {name: SPRING_DATASOURCE_USERNAME, value: taskboard}

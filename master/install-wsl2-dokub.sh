@@ -31,6 +31,7 @@ IMAGES=(
   postgres:16-alpine                                                  # lab 0 (Docker Compose)
   kindest/node:v1.37.0                                                # lab 1 : image des nœuds kind
   registry.k8s.io/cloud-provider-kind/cloud-controller-manager:v0.12.0 # lab 1, étape 5
+  registry:3                                                          # lab 1, étape 6 : registre local
 )
 
 [ "$(id -u)" -eq 0 ] && die "Lancer ce script avec le compte Linux normal, pas en root."
