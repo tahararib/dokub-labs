@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2088  # les « ~ » des messages sont du texte affiché, pas des chemins
+# ============================================================
+# nettoyage-master.sh — remet le master DOKUB dans l'état « avant formation »
+# Capability Forge / Tahar ARIB
+#
+# Retire ce que les participants installent ou créent eux-mêmes :
+#   clusters kind, cloud-provider-kind et ses répartiteurs, kubectl, kind,
+#   Helm, k9s, stern, kubectx, ~/.kube, réglages bash de kubectl, ~/labs,
+#   images et volumes devenus inutiles.
+# Garde : Docker, jq, yq, socat, ~/dokub-labs, commande dokub, images
+#         postgres, kindest/node, cloud-provider-kind et taskboard.
+#
+# Exécution :  bash ~/dokub-labs/master/nettoyage-master.sh
+# Ensuite   :  bash ~/dokub-labs/master/install-wsl2-dokub.sh step_08_validate
+# ============================================================
+set -uo pipefail
+GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
+log() { echo -e "\n${CYAN}$*${NC}"; }
+ok()  { echo -e "  ${GREEN}[OK] $*${NC}"; }
+
+log "Clusters kind et répartiteurs"
+if command -v kind >/dev/null; then
+    for c in $(kind get clusters 2>/dev/null); do kind delete cluster --name "$c" >/dev/null 2>&1 && ok "cluster $c supprimé"; done
+fi
+docker rm -f cloud-provider-kind >/dev/null 2>&1 && ok "cloud-provider-kind supprimé"
+# cloud-provider-kind crée un conteneur répartiteur par Service LoadBalancer / Gateway
+for c in $(docker ps -aq --filter "name=kindccm"); do docker rm -f "$c" >/dev/null; done
+left=$(docker ps -aq); [ -n "$left" ] && docker rm -f $left >/dev/null
+ok "aucun conteneur restant"
+
+log "Outils installés par les participants"
+for b in kubectl kind helm k9s stern; do
+    [ -e "/usr/local/bin/$b" ] && sudo rm -f "/usr/local/bin/$b" && ok "/usr/local/bin/$b retiré"
+done
+dpkg -s kubectx >/dev/null 2>&1 && sudo apt-get remove -y -q kubectx >/dev/null && ok "paquet kubectx retiré"
+rm -rf ~/.kube ~/.cache/helm ~/.config/helm ~/.local/share/helm ~/.config/k9s ~/.local/share/k9s ~/labs
+ok "~/.kube, configurations Helm et k9s, ~/labs supprimés"
+
+log "Réglages bash de kubectl (ajoutés par les participants au lab 1)"
+# Sans kubectl, « source <(kubectl completion bash) » afficherait une erreur à chaque ouverture
+sed -i '/# --- DOKUB : complétion kubectl et alias k ---/,+3d' ~/.bashrc
+sed -i '/kubectl completion bash/d; /^alias k=kubectl$/d; /__start_kubectl k$/d' ~/.bashrc
+ok "~/.bashrc nettoyé"
+
+log "Images et volumes inutiles"
+for img in busybox:1.37 nginx:stable registry.k8s.io/metrics-server/metrics-server:v0.9.1 maven:3.9-eclipse-temurin-21; do
+    docker rmi "$img" >/dev/null 2>&1 && ok "$img retirée"
+done
+docker volume rm dokub-m2 >/dev/null 2>&1 && ok "volume dokub-m2 retiré"
+docker image prune -f >/dev/null; docker builder prune -af >/dev/null
+rm -rf /tmp/kubectl* /tmp/kind* /tmp/*.yaml
+ok "images orphelines et cache de construction purgés"
+
+log "État final"
+docker images --format '  {{.Repository}}:{{.Tag}}  {{.Size}}'
+df -h / | tail -1 | awk '{print "  disque Ubuntu : " $3 " utilisés, " $4 " libres"}'
+echo -e "\n  Étape suivante : bash ~/dokub-labs/master/install-wsl2-dokub.sh step_08_validate"

@@ -20,11 +20,13 @@ CPK_NAME=cloud-provider-kind
 
 # Images externes utilisées par les labs : récupérées une fois sur le master,
 # puis présentes dans le Docker de chaque poste cloné (aucun accès Internet en session).
+# Avec Internet en session, les nœuds téléchargent eux-mêmes les images publiques ;
+# on ne garde sur le poste que celles qui évitent une attente au lab 0 et au lab 1.
+CPK_IMAGE=registry.k8s.io/cloud-provider-kind/cloud-controller-manager:v0.12.0
 EXTERNAL_IMAGES=(
   postgres:16-alpine
-  busybox:1.37
-  nginx:stable
-  registry.k8s.io/metrics-server/metrics-server:v0.9.1
+  kindest/node:v1.37.0
+  "$CPK_IMAGE"
 )
 TASKBOARD_IMAGES=(taskboard:1.0.0 taskboard:2.0.0 taskboard:3.0.0)
 
@@ -37,6 +39,12 @@ die()  { ko "$*"; exit 1; }
 k()    { kubectl --context "$CTX" "$@"; }
 
 cluster_exists() { kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; }
+
+# kubectl et kind sont installés par les participants au lab 1
+need_tools() {
+    command -v kubectl >/dev/null && command -v kind >/dev/null \
+        || die "kubectl ou kind absent : installez-les (lab 1, étapes 1 et 2)"
+}
 
 # Copie une image du Docker du poste vers le containerd de chaque nœud kind.
 # On n'utilise pas « kind load docker-image » : il importe avec --all-platforms, et une
@@ -80,6 +88,7 @@ cmd_images() {
 
 # ────────────────────────────────────────────────
 cmd_cluster_up() {
+    need_tools
     local t0=$SECONDS
     log "[1/5] Cluster kind « $CLUSTER » (1 control plane + 2 workers)"
     if cluster_exists; then ok "déjà créé"
@@ -97,7 +106,7 @@ cmd_cluster_up() {
         # --restart unless-stopped : redémarre avec Docker, donc après un redémarrage de WSL
         docker run -d --name "$CPK_NAME" --restart unless-stopped --network host \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            "$(cat "$HOME/.dokub/cloud-provider-kind-image")" >/dev/null
+            "$CPK_IMAGE" >/dev/null
         ok "démarré"
     fi
 
@@ -105,13 +114,13 @@ cmd_cluster_up() {
     k apply -f "$ROOT/cluster/metrics-server.yaml" >/dev/null
     ok "manifeste appliqué (les métriques arrivent ~60 s après le démarrage)"
 
-    log "[4/5] Chargement des images dans les nœuds"
+    log "[4/5] Chargement des images taskboard dans les nœuds"
     local t1=$SECONDS
-    for img in "${EXTERNAL_IMAGES[@]}" "${TASKBOARD_IMAGES[@]}"; do
+    for img in "${TASKBOARD_IMAGES[@]}"; do
         if docker image inspect "$img" >/dev/null 2>&1; then load_image "$img"
         else warn "$img absente du poste : lancer « dokub images »"; fi
     done
-    ok "Images chargées dans les 3 nœuds ($((SECONDS - t1)) s)"
+    ok "Images taskboard chargées dans les 3 nœuds ($((SECONDS - t1)) s)"
 
     log "[5/5] Vérification"
     k rollout status deployment/metrics-server -n kube-system --timeout=180s >/dev/null && ok "metrics-server prêt"
@@ -334,12 +343,15 @@ cmd_lab_check() {
         chk "pile docker compose du lab 0 arrêtée" "[ -z \"\$(docker compose -p lab00 ps -q)\" ]" "cd ~/dokub-labs/labs/lab00 && docker compose down"
         ;;
       01)
+        chk "kubectl installé, version 1.37" "kubectl version --client -o json | jq -r .clientVersion.gitVersion | grep -q '^v1\.37\.'" "étape 1"
+        chk "kind installé" "command -v kind" "étape 2"
         chk "cluster kind « dokub » créé" "cluster_exists" "kind create cluster --config ~/dokub-labs/cluster/kind-dokub.yaml"
         chk "3 nœuds Ready" "[ \$(k get nodes --no-headers | grep -c ' Ready ') -eq 3 ]" "kubectl get nodes ; kubectl describe node <nœud>"
         chk "API server en version v1.37.0" "k version -o json | jq -r .serverVersion.gitVersion | grep -qx v1.37.0"
-        chk "scheduler de nouveau en marche" "k -n kube-system get pod kube-scheduler-dokub-control-plane -o jsonpath='{.status.phase}' | grep -qx Running" "remettre kube-scheduler.yaml dans /etc/kubernetes/manifests (étape 7)"
-        chk "metrics-server disponible" "[ \"\$(avail kube-system metrics-server)\" = 1 ]" "dokub cluster up"
-        chk "images des labs chargées dans les nœuds" "docker exec dokub-worker crictl inspecti -q taskboard:1.0.0" "dokub cluster up"
+        chk "cloud-provider-kind démarré" "[ \"\$(docker inspect -f '{{.State.Running}}' cloud-provider-kind)\" = true ]" "étape 5"
+        chk "metrics-server disponible" "[ \"\$(avail kube-system metrics-server)\" = 1 ]" "étape 5, suite"
+        chk "images taskboard chargées dans les nœuds" "(for n in \$(kind get nodes --name dokub); do for v in 1.0.0 2.0.0 3.0.0; do docker exec \$n crictl inspecti -q taskboard:\$v >/dev/null || exit 1; done; done)" "étape 6"
+        chk "scheduler de nouveau en marche" "k -n kube-system get pod kube-scheduler-dokub-control-plane -o jsonpath='{.status.phase}' | grep -qx Running" "remettre kube-scheduler.yaml dans /etc/kubernetes/manifests (panne, c)"
         chk "pod de test supprimé" "! k -n default get pod test" "kubectl delete pod test -n default"
         ;;
       02)

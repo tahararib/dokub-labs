@@ -12,19 +12,27 @@ L'application des labs est **taskboard**, branche `dokub` du dépôt `tahararib/
 | `cluster/metrics-server.yaml` | metrics-server v0.9.1, copie du manifeste officiel + `--kubelet-insecure-tls` |
 | `manifests/mesure/` | PostgreSQL + taskboard pour la mesure des temps de démarrage |
 
-## Installation sur le master (Ubuntu 24.04 dans WSL2)
+## Répartition du travail (décidée le 21/11/2026)
 
-Prérequis : `install-wsl2-dokub.sh` exécuté, images taskboard construites
-(`cd ~/taskboard && bash dokub/build-images.sh`).
+| Préinstallé sur le master | Fait par les participants |
+|---|---|
+| Windows Terminal, VS Code, WSL2, Ubuntu 24.04 | installer kubectl et kind (lab 1) |
+| Docker CE, git, curl, jq, yq, socat | créer le cluster (lab 1) |
+| images postgres, kindest/node, cloud-provider-kind, taskboard 1.0/2.0/3.0 | démarrer cloud-provider-kind, installer metrics-server, charger les images taskboard (lab 1) |
+| dépôt `~/dokub-labs`, commande `dokub` | installer Helm (lab 12) |
 
-```bash
-cd ~
-git clone https://github.com/tahararib/dokub-labs.git
-sudo ln -sf ~/dokub-labs/bin/dokub /usr/local/bin/dokub
-dokub images
-dokub cluster up
-dokub mesure
-```
+`dokub` ne remplace aucun geste du carnet : `lab check` vérifie, `lab start` remet un participant bloqué en selle.
+
+## Préparer le master
+
+Scripts dans `master/` :
+
+| Script | Rôle |
+|---|---|
+| `install-windows-dokub.ps1` | partie Windows : WSL2, Ubuntu 24.04, `.wslconfig`, Windows Terminal et VS Code (étape facultative) |
+| `install-wsl2-dokub.sh` | partie Ubuntu : Docker CE, outils de base, images, dépôt, images taskboard ; validation finale |
+| `nettoyage-master.sh` | remet un master déjà utilisé dans l'état « avant formation » |
+| `inventaire-master.ps1` | inventaire Windows en lecture seule |
 
 ## Accès depuis Windows (vérifié sur le master le 20/11/2026)
 
