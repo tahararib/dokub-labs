@@ -1,0 +1,34 @@
+# ============================================================
+# Lab 8, étape 1 — Job « export » : une sauvegarde logique de la base (pg_dump), une fois.
+# Le pod s'arrête quand la commande se termine : le Job compte les réussites.
+#   kubectl apply -f export.yaml ; kubectl wait --for=condition=complete job/export
+#   kubectl logs job/export | grep -A4 "COPY public.task"
+# ============================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: export
+spec:
+  backoffLimit: 2                 # 2 nouvelles tentatives au plus après un échec
+  ttlSecondsAfterFinished: 3600   # Job et pods supprimés 1 h après la fin
+  template:
+    metadata:
+      labels: {app: export}
+    spec:
+      restartPolicy: Never        # obligatoire dans un Job : Never ou OnFailure
+      securityContext:            # namespace en « restricted » (lab 5)
+        runAsNonRoot: true
+        runAsUser: 70             # postgres
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: pg-dump
+        image: postgres:16-alpine # fournit pg_dump, déjà présente sur les nœuds
+        command: ["pg_dump", "-h", "postgres", "-U", "taskboard", "taskboard"]
+        env:
+        - {name: PGCONNECT_TIMEOUT, value: "5"}   # abandonner après 5 s si la base ne répond pas
+        - name: PGPASSWORD        # lu par pg_dump
+          valueFrom:
+            secretKeyRef: {name: postgres-cred, key: password}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}

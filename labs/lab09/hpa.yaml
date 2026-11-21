@@ -1,0 +1,27 @@
+# ============================================================
+# Lab 9, étape 2 — HorizontalPodAutoscaler v2 pour taskboard.
+# Cible : 50 % des requests CPU (100m) en moyenne, soit 50m par pod.
+# ============================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: taskboard
+spec:
+  scaleTargetRef:                 # l'objet dont l'HPA règle le nombre de réplicas
+    apiVersion: apps/v1
+    kind: Deployment
+    name: taskboard
+  minReplicas: 3                  # jamais moins : la haute disponibilité du lab 10
+  maxReplicas: 8                  # jamais plus : un plafond de coût
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization         # en pourcentage des requests
+        averageUtilization: 50
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0     # monter tout de suite (défaut)
+    scaleDown:
+      stabilizationWindowSeconds: 60    # descendre après 60 s de calme (défaut : 300 s)

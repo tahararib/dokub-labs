@@ -1,0 +1,40 @@
+# ============================================================
+# Lab 8, étape 3 — CronJob : le même export, planifié.
+# Toutes les minutes pour le lab ; en production, par exemple "0 2 * * *" (2 h du matin).
+#   kubectl get cronjob,jobs -w
+#   kubectl patch cronjob export-planifie -p '{"spec":{"suspend":true}}'
+# ============================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: export-planifie
+spec:
+  schedule: "* * * * *"           # minute heure jour mois jour-de-semaine
+  timeZone: Europe/Paris          # sans ce champ : le fuseau du control plane (UTC ici)
+  concurrencyPolicy: Forbid       # pas de nouvel export si le précédent tourne encore
+  successfulJobsHistoryLimit: 3   # Jobs réussis conservés
+  failedJobsHistoryLimit: 1       # Jobs en échec conservés, pour le diagnostic
+  jobTemplate:                    # le modèle de chaque Job créé
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels: {app: export}
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+          - name: pg-dump
+            image: postgres:16-alpine
+            command: ["sh", "-c", "pg_dump -h postgres -U taskboard taskboard | wc -c"]
+            env:
+            - {name: PGCONNECT_TIMEOUT, value: "5"}   # abandonner après 5 s si la base ne répond pas
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: postgres-cred, key: password}
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: {drop: ["ALL"]}

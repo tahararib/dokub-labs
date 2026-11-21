@@ -1,0 +1,39 @@
+# ============================================================
+# Lab 9, panne provoquée — un Deployment SANS requests CPU, et un HPA sur ce Deployment.
+# L'HPA calcule un pourcentage des requests : sans requests, il ne peut rien calculer.
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sans-requests
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: sans-requests}
+  template:
+    metadata:
+      labels: {app: sans-requests}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: attente
+        image: busybox:1.37
+        command: ["sleep", "infinity"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sans-requests
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: sans-requests}
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 50}}

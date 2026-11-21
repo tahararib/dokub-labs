@@ -1,0 +1,25 @@
+# ============================================================
+# Lab 11, étape 1 (facultative) — emptyDir : un dossier qui vit autant que le POD.
+# Il survit au redémarrage du conteneur, pas à la suppression du pod.
+# ============================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: volatile
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+  - name: volatile
+    image: busybox:1.37
+    command: ["sh", "-c", "date >> /cache/demarrages; sleep infinity"]   # une ligne par démarrage
+    volumeMounts:
+    - {name: cache, mountPath: /cache}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities: {drop: ["ALL"]}
+  volumes:
+  - name: cache
+    emptyDir: {}                  # créé vide avec le pod, effacé avec lui

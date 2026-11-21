@@ -1,0 +1,35 @@
+# ============================================================
+# Lab 11, panne provoquée — une demande de volume vers une StorageClass qui n'existe pas.
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: essai
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: rapide        # aucune StorageClass de ce nom dans le cluster
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: essai
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+  - name: essai
+    image: busybox:1.37
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - {name: v, mountPath: /donnees}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities: {drop: ["ALL"]}
+  volumes:
+  - name: v
+    persistentVolumeClaim: {claimName: essai}

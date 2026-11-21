@@ -418,7 +418,49 @@ cmd_lab_check() {
         chk "canary retiré, route à 100 % vers la version stable" "! k -n taskboard get deploy taskboard-canary && ! k -n taskboard get httproute taskboard -o jsonpath='{..backendRefs[*].name}' | grep -q canary" "kubectl delete -f canary.yaml ; kubectl apply -f ~/labs/lab06/gateway.yaml"
         chk "fichier et cluster alignés (kubectl diff)" "[ -f ~/labs/lab07/taskboard.yaml ] && k -n taskboard diff -f ~/labs/lab07/taskboard.yaml" "étape 4 : remettre 2.0.0 dans le fichier"
         ;;
-      *) die "Lab inconnu : $n (labs disponibles : 00 à 07)" ;;
+      08)
+        chk "Job export réussi" "[ \"\$(k -n taskboard get job export -o jsonpath='{.status.succeeded}')\" = 1 ]" "étape 1 ; le Job est effacé 1 h après sa fin : relancez-le"
+        chk "Job export-casse supprimé après diagnostic" "! k -n taskboard get job export-casse" "kubectl delete job export-casse"
+        chk "CronJob export-planifie : au moins un export réussi" "[ -n \"\$(k -n taskboard get cronjob export-planifie -o jsonpath='{.status.lastSuccessfulTime}')\" ]" "étape 3 : attendez la minute suivante"
+        chk "CronJob export-planifie suspendu" "[ \"\$(k -n taskboard get cronjob export-planifie -o jsonpath='{.spec.suspend}')\" = true ]" "étape 3, fin"
+        chk "DaemonSet node-exporter : un pod prêt par nœud (3)" "[ \"\$(k -n supervision get ds node-exporter -o jsonpath='{.status.numberReady}')\" = 3 ]" "étape 5 : kubectl -n supervision get pods -o wide"
+        ;;
+      09)
+        chk "HPA taskboard : 3 à 8 réplicas, cible 50 % CPU" "[ \"\$(k -n taskboard get hpa taskboard -o jsonpath='{.spec.minReplicas} {.spec.maxReplicas} {.spec.metrics[0].resource.target.averageUtilization}')\" = '3 8 50' ]" "étape 2"
+        chk "HPA taskboard : métrique CPU lue" "[ -n \"\$(k -n taskboard get hpa taskboard -o jsonpath='{.status.currentMetrics[0].resource.current.averageUtilization}')\" ]" "kubectl describe hpa taskboard"
+        chk "replicas retiré du fichier appliqué" "k -n taskboard get deploy taskboard -o jsonpath='{.metadata.annotations.kubectl\.kubernetes\.io/last-applied-configuration}' | jq -e '.spec.replicas == null'" "étape 4 : apply set-last-applied, puis apply"
+        chk "générateur de charge supprimé" "! k -n taskboard get deploy charge" "kubectl delete -f charge.yaml"
+        chk "panne nettoyée (sans-requests)" "! k -n taskboard get deploy sans-requests && ! k -n taskboard get hpa sans-requests" "kubectl delete -f sans-requests.yaml"
+        ;;
+      10)
+        chk "PodDisruptionBudget taskboard : minAvailable 2" "[ \"\$(k -n taskboard get pdb taskboard -o jsonpath='{.spec.minAvailable}')\" = 2 ]" "étape 2"
+        chk "répartition sur les nœuds (topologySpreadConstraints)" "[ -n \"\$(tpl '.topologySpreadConstraints[0].topologyKey')\" ]" "étape 1"
+        chk "éviction après 30 s (tolérances)" "tpl '.tolerations[*].tolerationSeconds' | grep -qw 30" "étape 4"
+        chk "3 nœuds Ready, aucun en maintenance" "[ \$(k get nodes --no-headers | grep -c ' Ready ') -eq 3 ] && ! k get nodes --no-headers | grep -q SchedulingDisabled" "docker start <nœud> ; kubectl uncordon <nœud>"
+        chk "pods taskboard sur 2 nœuds au moins" "[ \$(k -n taskboard get pods -l app=taskboard -o jsonpath='{range .items[*]}{.spec.nodeName}{\"\\n\"}{end}' | sort -u | grep -c .) -ge 2 ]" "kubectl rollout restart deployment/taskboard"
+        ;;
+      11)
+        chk "StatefulSet postgres prêt (1/1)" "[ \"\$(k -n taskboard get sts postgres -o jsonpath='{.status.readyReplicas}')\" = 1 ]" "kubectl describe pod postgres-0"
+        chk "ancien Deployment postgres supprimé" "! k -n taskboard get deploy postgres" "kubectl delete deployment postgres"
+        chk "volume donnees-postgres-0 lié (Bound)" "[ \"\$(k -n taskboard get pvc donnees-postgres-0 -o jsonpath='{.status.phase}')\" = Bound ]" "kubectl get pvc ; kubectl describe pvc donnees-postgres-0"
+        chk "tâches présentes dans la base" "[ \"\$(k -n taskboard exec postgres-0 -- psql -U taskboard -tAc 'select count(*) from task' 2>/dev/null)\" -ge 1 ]" "rechargez la page taskboard, ajoutez une tâche"
+        chk "panne nettoyée (pod et PVC essai)" "! k -n taskboard get pod essai && ! k -n taskboard get pvc essai" "kubectl delete -f pvc-rapide.yaml"
+        ;;
+      12)
+        chk "NetworkPolicy refus-par-defaut" "k -n taskboard get networkpolicy refus-par-defaut" "étape 1"
+        chk "taskboard répond (localhost:8080)" "curl -fsS -m 5 http://localhost:8080/api/version | grep -q version=" "étape 2 : taskboard-entree"
+        chk "base fermée au pod outils" "k -n taskboard get pod outils && ! k -n taskboard exec outils -- nc -z -w 3 postgres 5432" "étape 2 : postgres-entree ; le pod outils doit exister"
+        chk "exports autorisés vers la base" "k -n taskboard get networkpolicy postgres-entree -o jsonpath='{..podSelector.matchLabels.app}' | grep -qw export" "panne : ajouter app=export"
+        chk "Headlamp installé avec Helm" "[ \"\$(k -n headlamp get deploy headlamp -o jsonpath='{.status.availableReplicas}')\" -ge 1 ]" "étape 4 : helm install"
+        ;;
+      13)
+        chk "application recréée par kustomize" "[ \"\$(k -n taskboard get deploy taskboard -o jsonpath='{.metadata.labels.app\.kubernetes\.io/part-of}')\" = taskboard ]" "kubectl apply -k ~/dokub-labs/labs/lab13"
+        chk "Secret postgres-cred recréé" "k -n taskboard get secret postgres-cred" "étape 3"
+        chk "PostgreSQL prêt" "[ \"\$(k -n taskboard get sts postgres -o jsonpath='{.status.readyReplicas}')\" = 1 ]" "kubectl describe pod postgres-0"
+        chk "taskboard disponible (3/3)" "[ \"\$(avail taskboard taskboard)\" -ge 3 ]" "kubectl get pods ; kubectl describe pod <pod>"
+        chk "HTTPRoute : réponse sur taskboard.local" "curl -fsS -m 5 -H 'Host: taskboard.local' http://\$(gw_ip)/api/version | grep -q version=" "kubectl get gateway,httproute"
+        ;;
+      *) die "Lab inconnu : $n (labs disponibles : 00 à 13)" ;;
     esac
     chk_fin "$n"
 }
@@ -427,7 +469,7 @@ cmd_lab_check() {
 # Les labs se cumulent : l'état du lab 5 contient celui des labs 2, 3 et 4.
 SOL="$ROOT/solutions"
 etat_fin() {
-    local n=$1 ns="-n taskboard"
+    local n=$1 ns="-n taskboard" L="$ROOT/labs" pg=deploy/postgres
     log "État de fin du lab $(printf '%02d' "$n")"
     if [ "$n" -le 4 ]; then
         k apply -f "$SOL/lab02/taskboard.yaml" >/dev/null
@@ -443,24 +485,57 @@ etat_fin() {
         k apply -f "$SOL/lab05/configmaps.yaml" >/dev/null
         k label --overwrite namespace taskboard pod-security.kubernetes.io/warn=restricted \
             pod-security.kubernetes.io/enforce=restricted >/dev/null
-        k apply -f "$SOL/lab05/postgres.yaml" >/dev/null
-        k $ns rollout status deploy/postgres --timeout=180s >/dev/null
-        if [ "$n" -ge 7 ]; then
-            k apply -f "$SOL/lab07/taskboard.yaml" >/dev/null
-            k $ns annotate --overwrite deploy/taskboard kubernetes.io/change-cause="état de fin du lab 7 (dokub)" >/dev/null
+
+        # PostgreSQL : Deployment jusqu'au lab 10, StatefulSet ensuite (lab 11)
+        if [ "$n" -ge 11 ]; then
+            k $ns delete deploy postgres --ignore-not-found >/dev/null
+            k $ns apply -f "$L/lab11/postgres.yaml" >/dev/null
+            pg=statefulset/postgres
         else
-            k apply -f "$SOL/lab05/taskboard.yaml" >/dev/null
+            k $ns delete statefulset postgres --ignore-not-found >/dev/null
+            k apply -f "$SOL/lab05/postgres.yaml" >/dev/null
         fi
+        k $ns rollout status "$pg" --timeout=180s >/dev/null
+
+        # taskboard : la version du fichier qui correspond au lab atteint
+        local f=lab05
+        [ "$n" -ge 7 ] && f=lab07
+        [ "$n" -ge 9 ] && f=lab09
+        [ "$n" -ge 10 ] && f=lab10
+        # Sans replicas (lab 9+) : aligner d'abord la dernière configuration appliquée,
+        # sinon « apply » retirerait le champ et ramènerait le Deployment à 1 pod
+        [ "$n" -ge 9 ] && k $ns apply set-last-applied -f "$SOL/$f/taskboard.yaml" >/dev/null 2>&1 || true
+        k apply -f "$SOL/$f/taskboard.yaml" >/dev/null
+        [ "$n" -ge 7 ] && k $ns annotate --overwrite deploy/taskboard kubernetes.io/change-cause="état de fin du lab $n (dokub)" >/dev/null
+
         if [ "$n" -ge 6 ]; then
-            k $ns apply -f "$ROOT/labs/commun/outils.yaml" >/dev/null
-            k $ns apply -f "$ROOT/labs/lab06/taskboard-pods.yaml" >/dev/null
-            k $ns apply -f "$ROOT/labs/lab06/gateway.yaml" >/dev/null
+            k $ns apply -f "$L/commun/outils.yaml" >/dev/null
+            k $ns apply -f "$L/lab06/taskboard-pods.yaml" >/dev/null
+            k $ns apply -f "$L/lab06/gateway.yaml" >/dev/null
             local ip; ip=$(docker inspect "$REG_NAME" -f '{{.NetworkSettings.Networks.kind.IPAddress}}')
-            sed "s/172\.18\.0\.5/$ip/" "$ROOT/labs/lab06/registre.yaml" | k $ns apply -f - >/dev/null
+            sed "s/172\.18\.0\.5/$ip/" "$L/lab06/registre.yaml" | k $ns apply -f - >/dev/null
         fi
-        k $ns delete deploy taskboard-canary bv-bleu bv-vert --ignore-not-found >/dev/null
+        k $ns delete deploy taskboard-canary bv-bleu bv-vert charge sans-requests --ignore-not-found >/dev/null
+        k $ns delete hpa sans-requests --ignore-not-found >/dev/null
+        k $ns delete job export-casse calcul --ignore-not-found >/dev/null
+        k $ns delete pod essai volatile --ignore-not-found >/dev/null
+        k $ns delete pvc essai --ignore-not-found >/dev/null
+        if [ "$n" -ge 8 ]; then
+            k $ns apply -f "$L/lab08/export-planifie.yaml" >/dev/null
+            k $ns patch cronjob export-planifie -p '{"spec":{"suspend":true}}' >/dev/null
+            k apply -f "$L/lab08/node-exporter.yaml" >/dev/null
+        fi
+        [ "$n" -ge 9 ] && k $ns apply -f "$L/lab09/hpa.yaml" >/dev/null
+        [ "$n" -ge 10 ] && k $ns apply -f "$L/lab10/pdb.yaml" >/dev/null
+        if [ "$n" -ge 12 ]; then
+            k $ns apply -f "$L/lab12/refus-par-defaut.yaml" >/dev/null
+            k $ns apply -f "$SOL/lab12/autorisations.yaml" >/dev/null
+        else
+            k $ns delete networkpolicy refus-par-defaut taskboard-entree postgres-entree --ignore-not-found >/dev/null
+        fi
+        k uncordon dokub-worker dokub-worker2 >/dev/null 2>&1 || true   # lab 10 : drain inachevé
     fi
-    k $ns rollout status deploy/postgres --timeout=180s >/dev/null || { diag taskboard app=postgres; exit 1; }
+    k $ns rollout status "$pg" --timeout=180s >/dev/null || { diag taskboard app=postgres; exit 1; }
     k $ns rollout status deploy/taskboard --timeout=300s >/dev/null || { diag taskboard app=taskboard; exit 1; }
     ok "taskboard disponible"
 }
@@ -475,12 +550,12 @@ cmd_lab_start() {
           k delete namespace taskboard --ignore-not-found --wait=true >/dev/null
           kubectl config set-context "$CTX" --namespace=default >/dev/null
           ok "Prêt pour le lab 2 : cluster complet, namespace taskboard absent" ;;
-      03|04|05|06|07|08)
+      03|04|05|06|07|08|09|10|11|12|13)
           cmd_cluster_up
           etat_fin $((10#$n - 1))
           kubectl config set-context "$CTX" --namespace=taskboard >/dev/null
           ok "Prêt pour le lab $n : état de fin du lab $(printf '%02d' $((10#$n - 1))), contexte sur taskboard" ;;
-      *) die "Lab inconnu : $n (labs disponibles : 00 à 08)" ;;
+      *) die "Lab inconnu : $n (labs disponibles : 00 à 13)" ;;
     esac
 }
 

@@ -1,0 +1,27 @@
+# ============================================================
+# Lab 13 — toute l'application taskboard, décrite par des fichiers.
+#   kubectl kustomize ~/dokub-labs/labs/lab13      (voir ce qui sera appliqué)
+#   kubectl apply -k ~/dokub-labs/labs/lab13       (l'appliquer)
+# Volontairement absent : le Secret postgres-cred (lab 5), créé en ligne de commande.
+# ============================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: taskboard               # appliqué à chaque objet de la liste
+resources:
+- namespace.yaml
+- configmaps.yaml
+- postgres.yaml
+- taskboard.yaml
+- services.yaml
+- gateway.yaml
+- hpa.yaml
+- pdb.yaml
+- export-planifie.yaml
+- networkpolicies.yaml
+images:                            # la version livrée, en un seul endroit
+- name: localhost:5001/taskboard
+  newTag: "2.0.0"
+labels:                            # un label commun, sans toucher aux sélecteurs
+- pairs:
+    app.kubernetes.io/part-of: taskboard
+  includeSelectors: false

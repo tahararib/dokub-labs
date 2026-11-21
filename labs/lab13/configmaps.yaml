@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskboard-config          # lue en variables (envFrom) : figée au démarrage du pod
+data:
+  APP_BANNER: "Reportée à demain"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskboard-fichiers        # montée en fichiers (volume) : resynchronisée par le kubelet
+data:
+  banner.txt: "Fichier mis à jour"

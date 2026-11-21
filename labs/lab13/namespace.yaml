@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: taskboard
+  labels:                          # posés à la main au lab 5 : ici, ils sont écrits
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/enforce: restricted

@@ -1,0 +1,36 @@
+# ============================================================
+# Lab 8, étape 4 (facultative) — Job indexé : un traitement découpé en 6 parts,
+# 3 en parallèle. Chaque pod reçoit son numéro de part dans JOB_COMPLETION_INDEX
+# et demande à taskboard un calcul de 1,5 s (/api/compute).
+#   kubectl get pods -l job-name=calcul -o wide -w
+#   kubectl logs -l job-name=calcul --prefix
+# ============================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: calcul
+spec:
+  completionMode: Indexed         # chaque pod a un index de 0 à completions-1
+  completions: 6                  # 6 parts à traiter
+  parallelism: 3                  # 3 pods à la fois
+  backoffLimitPerIndex: 1         # une nouvelle tentative par part, indépendamment des autres
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: part
+        image: busybox:1.37
+        command:
+        - sh
+        - -c
+        - |
+          echo "part $JOB_COMPLETION_INDEX : début $(date +%T)"
+          wget -qO- "http://taskboard-lb/api/compute?ms=1500"; echo
+          echo "part $JOB_COMPLETION_INDEX : fin $(date +%T)"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}

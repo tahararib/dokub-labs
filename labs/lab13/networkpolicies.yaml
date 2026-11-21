@@ -1,0 +1,36 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refus-par-defaut
+spec:
+  podSelector: {}                 # vide = tous les pods du namespace
+  policyTypes: ["Ingress"]        # aucune règle « ingress » : rien n'entre
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: taskboard-entree
+spec:
+  podSelector:
+    matchLabels: {app: taskboard}
+  policyTypes: ["Ingress"]
+  ingress:
+  - ports:                        # pas de « from » : toute origine (Gateway, NodePort, pods)
+    - {port: 8080, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-entree
+spec:
+  podSelector:
+    matchLabels: {app: postgres}
+  policyTypes: ["Ingress"]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels: {app: taskboard}   # l'application…
+    - podSelector:
+        matchLabels: {app: export}      # …et les exports du lab 8 (panne du lab 12)
+    ports:
+    - {port: 5432, protocol: TCP}       # …et seulement sur le port de la base

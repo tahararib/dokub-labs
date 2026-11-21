@@ -1,0 +1,11 @@
+# ============================================================
+# Lab 12, étape 1 — Tout trafic ENTRANT vers les pods du namespace est refusé,
+# sauf ce qu'une autre NetworkPolicy autorise. Le trafic sortant n'est pas concerné.
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refus-par-defaut
+spec:
+  podSelector: {}                 # vide = tous les pods du namespace
+  policyTypes: ["Ingress"]        # aucune règle « ingress » : rien n'entre

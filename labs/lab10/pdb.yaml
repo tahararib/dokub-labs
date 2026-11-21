@@ -1,0 +1,13 @@
+# ============================================================
+# Lab 10, étape 2 — PodDisruptionBudget : pendant une maintenance (drain),
+# l'éviction d'un pod taskboard est refusée si moins de 2 resteraient disponibles.
+# Ne protège PAS d'une panne : un nœud qui s'arrête n'évince rien, il disparaît.
+# ============================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: taskboard
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app: taskboard}

@@ -1,0 +1,29 @@
+# ============================================================
+# Lab 9, étape 3 — Générateur de charge : 4 pods qui demandent sans arrêt
+# un calcul de 250 ms à taskboard (/api/compute). Supprimer ce Deployment arrête la charge.
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: charge
+spec:
+  replicas: 4
+  selector:
+    matchLabels: {app: charge}
+  template:
+    metadata:
+      labels: {app: charge}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: charge
+        image: busybox:1.37
+        command: ["sh", "-c", "while true; do wget -qO- -T 10 'http://taskboard-lb/api/compute?ms=250' >/dev/null 2>&1; done"]
+        resources:
+          requests: {cpu: 10m, memory: 8Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}

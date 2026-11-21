@@ -1,0 +1,43 @@
+# ============================================================
+# Lab 8, étape 5 — DaemonSet : un agent par nœud.
+# node-exporter publie les métriques de la machine (CPU, mémoire, disque) sur le port 9100.
+# Il a besoin du réseau, des processus et des fichiers de l'hôte : c'est contraire au
+# niveau « restricted ». Il vit donc dans son propre namespace, au niveau « privileged ».
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: supervision
+  labels:
+    pod-security.kubernetes.io/enforce: privileged   # accès à l'hôte autorisé ICI seulement
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: supervision
+spec:
+  selector:
+    matchLabels: {app: node-exporter}
+  template:
+    metadata:
+      labels: {app: node-exporter}
+    spec:
+      hostNetwork: true           # écoute sur l'adresse du nœud : <IP du nœud>:9100
+      hostPID: true               # voit les processus du nœud
+      tolerations:                # le control plane porte une taint : on l'accepte, un agent va partout
+      - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      containers:
+      - name: node-exporter
+        image: quay.io/prometheus/node-exporter:v1.12.1
+        args: ["--path.rootfs=/host"]   # lire /proc et /sys de l'hôte, montés dans /host
+        ports:
+        - {containerPort: 9100, name: metriques}
+        resources:
+          requests: {cpu: 20m, memory: 32Mi}
+          limits: {memory: 64Mi}
+        volumeMounts:
+        - {name: racine, mountPath: /host, readOnly: true, mountPropagation: HostToContainer}
+      volumes:
+      - name: racine
+        hostPath: {path: /}

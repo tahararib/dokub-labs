@@ -1,0 +1,65 @@
+# ============================================================
+# Lab 11 — PostgreSQL en StatefulSet, avec un volume persistant par instance.
+# Remplace le Deployment « postgres » (à supprimer avant). Le Service « postgres »
+# du lab 2 reste : il sélectionne app=postgres, donc aussi postgres-0.
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-h                # Service headless : un nom DNS stable par pod
+spec:
+  clusterIP: None                 # postgres-0.postgres-h.taskboard.svc.cluster.local
+  selector: {app: postgres}
+  ports:
+  - {port: 5432}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres-h         # le Service headless qui donne les noms des pods
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        env:
+        - {name: POSTGRES_DB, value: taskboard}
+        - name: POSTGRES_USER
+          valueFrom: {secretKeyRef: {name: postgres-cred, key: username}}
+        - name: POSTGRES_PASSWORD
+          valueFrom: {secretKeyRef: {name: postgres-cred, key: password}}
+        - name: PGDATA            # un sous-dossier : l'utilisateur 70 ne peut pas changer
+          value: /var/lib/postgresql/data/pgdata   # les droits du point de montage lui-même
+        ports:
+        - {containerPort: 5432}
+        volumeMounts:
+        - {name: donnees, mountPath: /var/lib/postgresql/data}
+        readinessProbe:
+          exec: {command: ["pg_isready", "-U", "taskboard", "-d", "taskboard"]}
+          periodSeconds: 5
+        resources:
+          requests: {cpu: 50m, memory: 128Mi}
+          limits: {memory: 512Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}
+  volumeClaimTemplates:           # un PVC par pod : donnees-postgres-0, donnees-postgres-1…
+  - metadata:
+      name: donnees
+    spec:
+      accessModes: ["ReadWriteOnce"]   # monté par un seul nœud à la fois
+      storageClassName: standard       # la StorageClass de kind (local-path)
+      resources:
+        requests:
+          storage: 1Gi
