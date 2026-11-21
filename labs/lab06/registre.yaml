@@ -1,0 +1,26 @@
+# ============================================================
+# Lab 6, étape 3 — Service personnalisé vers un serveur HORS du cluster :
+# le registre local (conteneur Docker « kind-registry », réseau « kind »).
+# Remplacez 172.18.0.5 par l'adresse donnée par :
+#   docker inspect kind-registry -f '{{.NetworkSettings.Networks.kind.IPAddress}}'
+# Test : kubectl exec outils -- wget -qO- registre:5000/v2/_catalog
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: registre
+spec:                       # pas de selector : Kubernetes ne cherche aucun pod
+  ports:
+  - port: 5000
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice           # les adresses du Service, écrites à la main
+metadata:
+  name: registre-1
+  labels:
+    kubernetes.io/service-name: registre   # rattache cet EndpointSlice au Service
+addressType: IPv4
+ports:
+- port: 5000                  # doit correspondre au port du Service
+endpoints:
+- addresses: ["172.18.0.5"]

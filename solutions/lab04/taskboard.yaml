@@ -1,0 +1,59 @@
+# ============================================================
+# Lab 4 — lab 3 + sondes de santé + ressources (état attendu en fin de lab)
+# Appliqué par « dokub lab start 05 ». Copié par le participant au début du lab 5.
+# ============================================================
+apiVersion: apps/v1               # groupe « apps », version « v1 » : kubectl api-resources
+kind: Deployment                  # type d'objet ; le contrôleur Deployment le prend en charge
+metadata:
+  name: taskboard                 # nom unique dans le namespace
+  namespace: taskboard
+  labels:
+    app: taskboard                # étiquette de l'objet lui-même (sert aux recherches -l)
+spec:
+  replicas: 3                     # état désiré : 3 pods
+  selector:
+    matchLabels:
+      app: taskboard              # le Deployment gère les pods qui portent ce label…
+  template:                       # …et crée les nouveaux pods à partir de ce modèle
+    metadata:
+      labels:
+        app: taskboard            # doit correspondre au selector, sinon apply est refusé
+    spec:
+      initContainers:             # s'exécutent jusqu'au bout, l'un après l'autre, AVANT les conteneurs
+      - name: attente-postgres
+        image: postgres:16-alpine # image déjà présente : elle fournit l'outil pg_isready
+        command:                  # boucle shell : réessaie toutes les 2 s jusqu'à ce que la base réponde
+        - sh
+        - -c
+        - |
+          until pg_isready -h postgres -p 5432; do
+            echo "PostgreSQL pas encore prêt"; sleep 2
+          done
+      containers:
+      - name: taskboard
+        image: localhost:5001/taskboard:1.0.0
+        ports:
+        - containerPort: 8080     # documentaire : n'ouvre rien, informe les lecteurs et les outils
+        env:                      # variables lues par Spring Boot au démarrage
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres:5432/taskboard"   # « postgres » = nom DNS du Service
+        - name: SPRING_DATASOURCE_USERNAME
+          value: taskboard
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: taskboard        # en clair : dette inscrite au registre, soldée au lab 5
+        startupProbe:             # laisse le temps de démarrer ; les deux autres attendent
+          httpGet: {path: /actuator/health/liveness, port: 8080}
+          periodSeconds: 2
+          failureThreshold: 60    # 2 s × 60 = 120 s maximum
+        readinessProbe:           # échec : retiré des EndpointSlices, plus de trafic
+          httpGet: {path: /actuator/health/readiness, port: 8080}
+          periodSeconds: 5
+        livenessProbe:            # échec : le kubelet redémarre le conteneur
+          httpGet: {path: /actuator/health/liveness, port: 8080}
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 100m             # réservé pour le placement ; base de l'autoscaler (lab 9)
+            memory: 256Mi
+          limits:
+            memory: 512Mi         # au-delà : OOMKilled. Pas de limite CPU : démarrage JVM gourmand

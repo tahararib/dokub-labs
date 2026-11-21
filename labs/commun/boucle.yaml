@@ -1,0 +1,37 @@
+# ============================================================
+# Pod « boucle » : interroge taskboard deux fois par seconde, depuis le cluster.
+# Labs 4 et 7 : compter les requêtes perdues pendant un redémarrage ou une mise à jour.
+#   kubectl apply -f ~/dokub-labs/labs/commun/boucle.yaml
+#   kubectl logs -f boucle                    (suivre)
+#   kubectl logs boucle | grep -c ERREUR      (compter les échecs)
+# ============================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: boucle
+  labels: {app: boucle}
+spec:
+  securityContext:              # conforme au niveau « restricted » (lab 5)
+    runAsNonRoot: true
+    runAsUser: 65534            # « nobody » : l'image busybox n'a pas d'utilisateur dédié
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+  - name: boucle
+    image: busybox:1.37
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities: {drop: ["ALL"]}
+    # Chaque tour : une requête au Service taskboard-lb, 10 s d'attente au plus.
+    # Succès : « HH:MM:SS version=… pod=… ». Échec : « HH:MM:SS ERREUR <message de wget> ».
+    # L'heure est celle de la FIN de la requête : un échec par délai dépassé est parti 10 s plus tôt.
+    command:
+    - sh
+    - -c
+    - |
+      while true; do
+        r=$(wget -qO- -T 10 http://taskboard-lb/api/version 2>&1)
+        if [ $? -eq 0 ]; then echo "$(date +%T) $r"
+        else echo "$(date +%T) ERREUR $r"; fi
+        sleep 0.5
+      done
+  restartPolicy: Never

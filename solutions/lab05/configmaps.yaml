@@ -1,0 +1,19 @@
+# ============================================================
+# Lab 5 — les deux ConfigMaps, dans leur état de fin de lab.
+# Dans le lab, elles sont générées par « kubectl create configmap … --dry-run=client -o yaml ».
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskboard-config          # lue en variables (envFrom) : figée au démarrage du pod
+  namespace: taskboard
+data:
+  APP_BANNER: "Reportée à demain"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskboard-fichiers        # montée en fichiers (volume) : resynchronisée par le kubelet
+  namespace: taskboard
+data:
+  banner.txt: "Fichier mis à jour"

@@ -1,0 +1,97 @@
+# ============================================================
+# Lab 7, étape 6 (facultative) — Bleu/vert : deux versions complètes côte à côte,
+# un seul Service « bv » ; changer son sélecteur bascule tout le trafic d'un coup.
+#   kubectl patch svc bv -p '{"spec":{"selector":{"app":"bv","couleur":"vert"}}}'
+#   kubectl exec outils -- wget -qO- bv/api/version
+# Nettoyer : kubectl delete -f bleu-vert.yaml
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bv-bleu
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: bv, couleur: bleu}
+  template:
+    metadata:
+      labels: {app: bv, couleur: bleu}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: taskboard
+        image: localhost:5001/taskboard:1.0.0
+        env:
+        - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres:5432/taskboard"}
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom: {secretKeyRef: {name: postgres-cred, key: username}}
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom: {secretKeyRef: {name: postgres-cred, key: password}}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}
+        lifecycle:
+          preStop: {sleep: {seconds: 10}}
+        startupProbe:
+          httpGet: {path: /actuator/health/liveness, port: 8080}
+          periodSeconds: 2
+          failureThreshold: 60
+        readinessProbe:
+          httpGet: {path: /actuator/health/readiness, port: 8080}
+          periodSeconds: 5
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {memory: 512Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bv-vert
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: bv, couleur: vert}
+  template:
+    metadata:
+      labels: {app: bv, couleur: vert}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: taskboard
+        image: localhost:5001/taskboard:2.0.0
+        env:
+        - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres:5432/taskboard"}
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom: {secretKeyRef: {name: postgres-cred, key: username}}
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom: {secretKeyRef: {name: postgres-cred, key: password}}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}
+        lifecycle:
+          preStop: {sleep: {seconds: 10}}
+        startupProbe:
+          httpGet: {path: /actuator/health/liveness, port: 8080}
+          periodSeconds: 2
+          failureThreshold: 60
+        readinessProbe:
+          httpGet: {path: /actuator/health/readiness, port: 8080}
+          periodSeconds: 5
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {memory: 512Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bv
+spec:
+  selector: {app: bv, couleur: bleu}   # tout le trafic vers la version bleue (1.0.0)
+  ports:
+  - {port: 80, targetPort: 8080}

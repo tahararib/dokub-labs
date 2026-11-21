@@ -1,0 +1,74 @@
+# ============================================================
+# Lab 7, étape 5 — Canary : 10 % du trafic vers la version 3.0.0.
+# Un Deployment séparé (label app=taskboard-canary : le Service taskboard-lb ne le voit pas),
+# son Service, et l'HTTPRoute « taskboard » du lab 6 avec deux cibles pondérées.
+# Retirer : kubectl delete -f canary.yaml ; kubectl apply -f ~/labs/lab06/gateway.yaml
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskboard-canary
+spec:
+  replicas: 1                   # la part de trafic ne dépend pas du nombre de pods
+  selector:
+    matchLabels: {app: taskboard-canary}
+  template:
+    metadata:
+      labels: {app: taskboard-canary}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: taskboard
+        image: localhost:5001/taskboard:3.0.0
+        env:
+        - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres:5432/taskboard"}
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom: {secretKeyRef: {name: postgres-cred, key: username}}
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom: {secretKeyRef: {name: postgres-cred, key: password}}
+        - name: FEATURE_URL       # obligatoire depuis la 3.0.0 : son absence bloquait le lab 7, étape 3
+          value: http://catalogue.interne/fonctions
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}
+        lifecycle:
+          preStop: {sleep: {seconds: 10}}
+        startupProbe:
+          httpGet: {path: /actuator/health/liveness, port: 8080}
+          periodSeconds: 2
+          failureThreshold: 60
+        readinessProbe:
+          httpGet: {path: /actuator/health/readiness, port: 8080}
+          periodSeconds: 5
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {memory: 512Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: taskboard-canary
+spec:
+  selector: {app: taskboard-canary}
+  ports:
+  - {port: 80, targetPort: 8080}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: taskboard               # remplace la route du lab 6
+spec:
+  parentRefs:
+  - name: entree
+  hostnames: ["taskboard.local"]
+  rules:
+  - backendRefs:
+    - name: taskboard-lb        # version stable 2.0.0
+      port: 80
+      weight: 90
+    - name: taskboard-canary    # version 3.0.0
+      port: 80
+      weight: 10

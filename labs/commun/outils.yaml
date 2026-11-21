@@ -1,0 +1,25 @@
+# ============================================================
+# Pod « outils » : un poste de diagnostic dans le namespace (labs 6 et 7).
+#   kubectl apply -f ~/dokub-labs/labs/commun/outils.yaml
+#   kubectl exec -it outils -- sh             (shell ; « exit » pour sortir)
+#   kubectl exec outils -- nslookup postgres  (une commande)
+# Le namespace taskboard impose Pod Security « restricted » depuis le lab 5 :
+# un « kubectl run » sans securityContext y est refusé. Ce pod est conforme.
+# ============================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: outils
+  labels: {app: outils}
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+  - name: outils
+    image: busybox:1.37         # nslookup, wget, nc
+    command: ["sleep", "infinity"]
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities: {drop: ["ALL"]}

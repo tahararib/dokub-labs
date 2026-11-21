@@ -1,0 +1,44 @@
+# ============================================================
+# Lab 5, étape 3 — PostgreSQL : identifiants lus dans le Secret postgres-cred,
+# et conforme au niveau Pod Security « restricted » (étape 5).
+#   Le Secret est créé en ligne de commande (sa valeur n'est dans aucun fichier) :
+#   kubectl create secret generic postgres-cred \
+#     --from-literal=username=taskboard --from-literal=password=<mot de passe>
+# Pas de volume : les données disparaissent avec le pod (dette D4, soldée au lab 11).
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: taskboard
+  labels: {app: postgres}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70             # « postgres » dans l'image alpine ; données déjà à lui
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        env:
+        - {name: POSTGRES_DB, value: taskboard}
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef: {name: postgres-cred, key: username}
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: postgres-cred, key: password}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}
+        readinessProbe:           # prête quand elle accepte les connexions
+          exec:
+            command: ["pg_isready", "-U", "taskboard", "-d", "taskboard"]
+          periodSeconds: 5

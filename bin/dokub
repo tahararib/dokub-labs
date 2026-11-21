@@ -343,6 +343,14 @@ chk_fin() {
 }
 lb_ip() { k -n taskboard get svc taskboard-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null; }
 avail() { k -n "$1" get deploy "$2" -o jsonpath='{.status.availableReplicas}' 2>/dev/null; }
+gw_ip() { k -n taskboard get gateway entree -o jsonpath='{.status.addresses[0].value}' 2>/dev/null; }
+# Champ du modèle de pod du Deployment taskboard : tpl '.containers[0].image'
+tpl() { k -n taskboard get deploy taskboard -o jsonpath="{.spec.template.spec$1}" 2>/dev/null; }
+# Exactement 3 pods taskboard, tous prêts : aucun pod en trop (Pending, CrashLoop, rollout inachevé)
+toutes_pretes() {
+    local l; l=$(k -n taskboard get pods -l app=taskboard --no-headers 2>/dev/null)
+    [ "$(echo "$l" | grep -c .)" -eq 3 ] && [ "$(echo "$l" | awk '$2=="1/1" && $3=="Running"' | wc -l)" -eq 3 ]
+}
 
 cmd_lab_check() {
     local n=${1:-}
@@ -382,9 +390,79 @@ cmd_lab_check() {
         chk "PostgreSQL disponible (1/1)" "[ \"\$(avail taskboard postgres)\" = 1 ]" "kubectl scale deploy/postgres --replicas=1"
         chk "aucun pod orphelin (app=hors-service)" "[ -z \"\$(k -n taskboard get pods -l app=hors-service -o name)\" ]" "kubectl delete pod -l app=hors-service"
         ;;
-      *) die "Lab inconnu : $n (labs disponibles : 00 01 02 03)" ;;
+      04)
+        chk "sondes startup, readiness et liveness" "[ \"\$(tpl '.containers[0].startupProbe.httpGet.path')\" = /actuator/health/liveness ] && [ \"\$(tpl '.containers[0].readinessProbe.httpGet.path')\" = /actuator/health/readiness ] && [ \"\$(tpl '.containers[0].livenessProbe.httpGet.path')\" = /actuator/health/liveness ]" "étape 2 ; panne : remettre /liveness"
+        chk "requests CPU et mémoire, limite mémoire" "[ -n \"\$(tpl '.containers[0].resources.requests.cpu')\" ] && [ -n \"\$(tpl '.containers[0].resources.requests.memory')\" ] && [ -n \"\$(tpl '.containers[0].resources.limits.memory')\" ]" "étape 3"
+        chk "taskboard disponible (3/3)" "[ \"\$(avail taskboard taskboard)\" = 3 ]" "kubectl get pods ; kubectl describe pod <pod>"
+        chk "aucun redémarrage en cours" "toutes_pretes" "pannes : requests.cpu à 100m, limits.memory à 512Mi"
+        ;;
+      05)
+        chk "ConfigMap taskboard-config utilisée" "tpl '.containers[0].envFrom[*].configMapRef.name' | grep -qw taskboard-config" "étape 1 : envFrom"
+        chk "Secret postgres-cred utilisé par taskboard et PostgreSQL" "tpl '..secretKeyRef.name' | grep -qw postgres-cred && k -n taskboard get deploy postgres -o jsonpath='{..secretKeyRef.name}' | grep -qw postgres-cred" "étape 3"
+        chk "aucun mot de passe en clair dans les Deployments" "[ -z \"\$(k -n taskboard get deploy -o json | jq -r '.items[].spec.template.spec.containers[].env[]? | select(.name|test(\"PASSWORD\")) | .value // empty')\" ]" "étape 3 : valueFrom.secretKeyRef"
+        chk "namespace en Pod Security « restricted »" "[ \"\$(k get ns taskboard -o jsonpath='{.metadata.labels.pod-security\\.kubernetes\\.io/enforce}')\" = restricted ]" "étape 5, c"
+        chk "taskboard disponible (3/3)" "[ \"\$(avail taskboard taskboard)\" = 3 ] && toutes_pretes" "panne : runAsUser numérique"
+        ;;
+      06)
+        chk "Service headless taskboard-pods" "[ \"\$(k -n taskboard get svc taskboard-pods -o jsonpath='{.spec.clusterIP}')\" = None ]" "étape 2, b"
+        chk "Service personnalisé registre (sans sélecteur)" "[ -z \"\$(k -n taskboard get svc registre -o jsonpath='{.spec.selector}')\" ] && k -n taskboard exec outils -- wget -qO- -T 5 registre:5000/v2/_catalog | grep -q taskboard" "étape 3 : adresse dans l'EndpointSlice ?"
+        chk "Gateway entree programmée" "[ \"\$(k -n taskboard get gateway entree -o jsonpath='{.status.conditions[?(@.type==\"Programmed\")].status}')\" = True ]" "étape 4"
+        chk "HTTPRoute taskboard : réponse sur taskboard.local" "curl -fsS -m 5 -H 'Host: taskboard.local' http://\$(gw_ip)/api/version | grep -q version=" "étape 4 ; panne : sélecteur app=taskboard"
+        chk "Service taskboard-lb : 3 pods derrière" "[ \"\$(k -n taskboard get endpointslices -l kubernetes.io/service-name=taskboard-lb -o json | jq '[.items[].endpoints[]? | select(.conditions.ready)] | length')\" -eq 3 ]" "panne : kubectl get endpointslices"
+        ;;
+      07)
+        chk "taskboard en version 2.0.0 (3/3)" "tpl '.containers[0].image' | grep -q ':2\\.0\\.0\$' && [ \"\$(avail taskboard taskboard)\" = 3 ] && toutes_pretes" "étape 4 : rollout undo, fichier en 2.0.0"
+        chk "stratégie maxSurge 1, maxUnavailable 0" "[ \"\$(k -n taskboard get deploy taskboard -o jsonpath='{.spec.strategy.rollingUpdate.maxSurge} {.spec.strategy.rollingUpdate.maxUnavailable}')\" = '1 0' ]" "étape 1"
+        chk "preStop en place" "[ -n \"\$(tpl '.containers[0].lifecycle.preStop.sleep.seconds')\" ]" "étape 2"
+        chk "historique : causes de changement renseignées" "k -n taskboard get rs -l app=taskboard -o jsonpath='{..kubernetes\\.io/change-cause}' | grep -q ." "kubectl annotate deployment taskboard kubernetes.io/change-cause=…"
+        chk "canary retiré, route à 100 % vers la version stable" "! k -n taskboard get deploy taskboard-canary && ! k -n taskboard get httproute taskboard -o jsonpath='{..backendRefs[*].name}' | grep -q canary" "kubectl delete -f canary.yaml ; kubectl apply -f ~/labs/lab06/gateway.yaml"
+        chk "fichier et cluster alignés (kubectl diff)" "[ -f ~/labs/lab07/taskboard.yaml ] && k -n taskboard diff -f ~/labs/lab07/taskboard.yaml" "étape 4 : remettre 2.0.0 dans le fichier"
+        ;;
+      *) die "Lab inconnu : $n (labs disponibles : 00 à 07)" ;;
     esac
     chk_fin "$n"
+}
+
+# Reconstruit l'état de fin du lab N (2 à 7) à partir des fichiers de solution.
+# Les labs se cumulent : l'état du lab 5 contient celui des labs 2, 3 et 4.
+SOL="$ROOT/solutions"
+etat_fin() {
+    local n=$1 ns="-n taskboard"
+    log "État de fin du lab $(printf '%02d' "$n")"
+    if [ "$n" -le 4 ]; then
+        k apply -f "$SOL/lab02/taskboard.yaml" >/dev/null
+        [ "$n" -ge 3 ] && k apply -f "$SOL/lab03/taskboard.yaml" >/dev/null
+        [ "$n" -ge 4 ] && k apply -f "$SOL/lab04/taskboard.yaml" >/dev/null
+        k $ns delete pod -l app=hors-service --ignore-not-found >/dev/null
+    else
+        # Lab 5 et suivants : namespace et Services du lab 2, sans ses Deployments
+        # (mot de passe en clair, refusés par Pod Security « restricted »)
+        yq 'select(.kind != "Deployment")' "$SOL/lab02/taskboard.yaml" | k apply -f - >/dev/null
+        k $ns create secret generic postgres-cred --from-literal=username=taskboard \
+            --from-literal=password=Tb-2026-formation --dry-run=client -o yaml | k apply -f - >/dev/null
+        k apply -f "$SOL/lab05/configmaps.yaml" >/dev/null
+        k label --overwrite namespace taskboard pod-security.kubernetes.io/warn=restricted \
+            pod-security.kubernetes.io/enforce=restricted >/dev/null
+        k apply -f "$SOL/lab05/postgres.yaml" >/dev/null
+        k $ns rollout status deploy/postgres --timeout=180s >/dev/null
+        if [ "$n" -ge 7 ]; then
+            k apply -f "$SOL/lab07/taskboard.yaml" >/dev/null
+            k $ns annotate --overwrite deploy/taskboard kubernetes.io/change-cause="état de fin du lab 7 (dokub)" >/dev/null
+        else
+            k apply -f "$SOL/lab05/taskboard.yaml" >/dev/null
+        fi
+        if [ "$n" -ge 6 ]; then
+            k $ns apply -f "$ROOT/labs/commun/outils.yaml" >/dev/null
+            k $ns apply -f "$ROOT/labs/lab06/taskboard-pods.yaml" >/dev/null
+            k $ns apply -f "$ROOT/labs/lab06/gateway.yaml" >/dev/null
+            local ip; ip=$(docker inspect "$REG_NAME" -f '{{.NetworkSettings.Networks.kind.IPAddress}}')
+            sed "s/172\.18\.0\.5/$ip/" "$ROOT/labs/lab06/registre.yaml" | k $ns apply -f - >/dev/null
+        fi
+        k $ns delete deploy taskboard-canary bv-bleu bv-vert --ignore-not-found >/dev/null
+    fi
+    k $ns rollout status deploy/postgres --timeout=180s >/dev/null || { diag taskboard app=postgres; exit 1; }
+    k $ns rollout status deploy/taskboard --timeout=300s >/dev/null || { diag taskboard app=taskboard; exit 1; }
+    ok "taskboard disponible"
 }
 
 cmd_lab_start() {
@@ -397,17 +475,12 @@ cmd_lab_start() {
           k delete namespace taskboard --ignore-not-found --wait=true >/dev/null
           kubectl config set-context "$CTX" --namespace=default >/dev/null
           ok "Prêt pour le lab 2 : cluster complet, namespace taskboard absent" ;;
-      03|04)
+      03|04|05|06|07|08)
           cmd_cluster_up
-          log "État de fin du lab $(printf '%02d' $((10#$n - 1)))"
-          k apply -f "$ROOT/solutions/lab02/taskboard.yaml" >/dev/null
-          [ "$n" = 04 ] && k apply -f "$ROOT/solutions/lab03/taskboard.yaml" >/dev/null
-          k -n taskboard delete pod -l app=hors-service --ignore-not-found >/dev/null
+          etat_fin $((10#$n - 1))
           kubectl config set-context "$CTX" --namespace=taskboard >/dev/null
-          k -n taskboard rollout status deploy/postgres --timeout=180s >/dev/null
-          k -n taskboard rollout status deploy/taskboard --timeout=300s >/dev/null
-          ok "Prêt pour le lab $n : namespace taskboard en place, contexte sur taskboard" ;;
-      *) die "Lab inconnu : $n (labs disponibles : 00 01 02 03 04)" ;;
+          ok "Prêt pour le lab $n : état de fin du lab $(printf '%02d' $((10#$n - 1))), contexte sur taskboard" ;;
+      *) die "Lab inconnu : $n (labs disponibles : 00 à 08)" ;;
     esac
 }
 

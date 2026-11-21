@@ -1,0 +1,80 @@
+# ============================================================
+# Lab 5 — état attendu en fin de lab (appliqué par « dokub lab start 06 »)
+# Lab 4 + ConfigMap (variables et fichier) + Secret + Pod Security « restricted ».
+# Prérequis dans le namespace : Secret postgres-cred, ConfigMaps taskboard-config
+# et taskboard-fichiers (voir configmaps.yaml), label pod-security enforce=restricted.
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskboard
+  namespace: taskboard
+  labels: {app: taskboard}
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: taskboard}
+  template:
+    metadata:
+      labels: {app: taskboard}
+    spec:
+      securityContext:            # niveau du pod : s'applique à TOUS les conteneurs, init compris
+        runAsNonRoot: true        # le kubelet refuse de démarrer un conteneur root
+        runAsUser: 100            # = « app » dans l'image taskboard (kubectl exec … -- id)
+        seccompProfile:
+          type: RuntimeDefault    # appels système filtrés par le profil du runtime
+      initContainers:
+      - name: attente-postgres
+        image: postgres:16-alpine
+        command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h postgres -p 5432; do
+            echo "PostgreSQL pas encore prêt"; sleep 2
+          done
+        securityContext:          # ces deux réglages n'existent qu'au niveau du conteneur
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}
+      containers:
+      - name: taskboard
+        image: localhost:5001/taskboard:1.0.0
+        ports:
+        - containerPort: 8080
+        envFrom:                  # chaque clé de la ConfigMap devient une variable (APP_BANNER)
+        - configMapRef:
+            name: taskboard-config
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres:5432/taskboard"
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef: {name: postgres-cred, key: username}
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: postgres-cred, key: password}
+        - name: APP_BANNER_FILE   # prioritaire sur APP_BANNER ; relu à chaque requête
+          value: /config/banner.txt
+        volumeMounts:
+        - name: fichiers
+          mountPath: /config
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}
+        startupProbe:
+          httpGet: {path: /actuator/health/liveness, port: 8080}
+          periodSeconds: 2
+          failureThreshold: 60
+        readinessProbe:
+          httpGet: {path: /actuator/health/readiness, port: 8080}
+          periodSeconds: 5
+        livenessProbe:
+          httpGet: {path: /actuator/health/liveness, port: 8080}
+          periodSeconds: 10
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {memory: 512Mi}
+      volumes:
+      - name: fichiers            # chaque clé de la ConfigMap devient un fichier dans /config
+        configMap:
+          name: taskboard-fichiers

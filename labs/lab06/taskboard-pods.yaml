@@ -1,0 +1,13 @@
+# ============================================================
+# Lab 6, étape 2 — Service headless : pas d'adresse virtuelle,
+# le nom DNS renvoie directement l'adresse de chaque pod prêt.
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: taskboard-pods
+spec:
+  clusterIP: None
+  selector: {app: taskboard}
+  ports:
+  - {port: 8080, targetPort: 8080}

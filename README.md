@@ -11,6 +11,8 @@ L'application des labs est **taskboard**, branche `dokub` du dépôt `tahararib/
 | `cluster/kind-dokub.yaml` | cluster des labs : 1 control plane + 2 workers, Kubernetes 1.37.0, NodePort 30080 publié sur le port 8080 |
 | `cluster/metrics-server.yaml` | metrics-server v0.9.1, copie du manifeste officiel + `--kubelet-insecure-tls` |
 | `manifests/mesure/` | PostgreSQL + taskboard pour la mesure des temps de démarrage |
+| `labs/` | fichiers que les participants copient ou appliquent : `lab00/compose.yaml` ; `commun/boucle.yaml` (requêtes en continu, labs 4 et 7) et `commun/outils.yaml` (pod de diagnostic conforme « restricted ») ; `lab06/` (Service sans sélecteur, headless, Gateway) ; `lab07/` (canary, bleu/vert) |
+| `solutions/labNN/` | état attendu en fin de lab NN ; `dokub lab start NN+1` les applique (cumulativement) |
 
 ## Répartition du travail (décidée le 21/11/2026)
 
