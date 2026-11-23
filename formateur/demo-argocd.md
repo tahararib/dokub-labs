@@ -1,6 +1,6 @@
 # Démo formateur — GitOps avec Argo CD (jour 3, facultative, 15 min)
 
-**Quand** : jour 3, après le lab 13 et le slide « Démonstration · Argo CD », vers 16 h 15. À ne pas faire si le QCM de sortie et l'évaluation risquent d'être écourtés.
+**Quand** : jour 3, après le lab 13 et le slide « Démonstration · Argo CD », vers 16 h 15. À ne pas faire si l'incident 3 et l'évaluation risquent d'être écourtés.
 **Pourquoi** : le lab 13 montre que l'application se reconstruit depuis des fichiers. La démonstration montre l'étape suivante : un agent dans le cluster qui applique ces fichiers en continu, et corrige ce qui a été fait à la main.
 **Ce n'est pas un lab** : Argo CD demande environ 1 Go de mémoire de plus par poste, et un dépôt Git avec droits de push par participant.
 
