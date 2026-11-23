@@ -33,6 +33,10 @@ EXTERNAL_IMAGES=(
   kindest/node:v1.37.0
   "$CPK_IMAGE"
   "$REG_IMAGE"
+  envoyproxy/envoy:v1.33.2          # lancée par cloud-provider-kind pour chaque Gateway (lab 6)
+  busybox:1.37                      # pods outils, boucle, export : secours « kind load » (limite Docker Hub)
+  nginx:stable                      # lab 1 : secours « kind load »
+  registry.k8s.io/metrics-server/metrics-server:v0.9.1
 )
 TASKBOARD_IMAGES=(taskboard:1.0.0 taskboard:2.0.0 taskboard:3.0.0)
 

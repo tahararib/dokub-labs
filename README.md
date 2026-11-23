@@ -50,7 +50,7 @@ Scripts dans `master/` :
 |---|---|
 | `dl.k8s.io` | kubectl (lab 1) |
 | `kind.sigs.k8s.io`, `github.com`, `objects.githubusercontent.com` | kind (lab 1) |
-| `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` | busybox, postgres, tirés par les nœuds (limite anonyme de Docker Hub : à surveiller si tous les postes sortent par la même adresse) |
+| `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` | busybox, postgres, nginx, tirés par les nœuds. Limite anonyme mesurée le 23/11/2026 depuis le master : 100 téléchargements par heure et par adresse. En cas de `toomanyrequests` : `kind load docker-image postgres:16-alpine busybox:1.37 nginx:stable --name dokub` (images présentes sur le poste) |
 | `registry.k8s.io` | metrics-server, cloud-provider-kind |
 | `quay.io` | node-exporter (lab 8) |
 | `raw.githubusercontent.com` | script d'installation de Helm (lab 12) |
