@@ -6,7 +6,7 @@
 #
 # Retire ce que les participants installent ou créent eux-mêmes :
 #   clusters kind, cloud-provider-kind et ses répartiteurs, kubectl, kind,
-#   Helm, k9s, stern, kubectx, ~/.kube, réglages bash de kubectl, ~/labs,
+#   Helm, k9s, stern, kubectx, ~/.kube, réglages bash de kubectl, ~/labs, ~/.dokub, ~/rg,
 #   images et volumes devenus inutiles.
 # Garde : Docker, jq, yq, socat, ~/dokub-labs, commande dokub, images
 #         postgres, kindest/node, cloud-provider-kind et taskboard.
@@ -34,8 +34,8 @@ for b in kubectl kind helm k9s stern; do
     [ -e "/usr/local/bin/$b" ] && sudo rm -f "/usr/local/bin/$b" && ok "/usr/local/bin/$b retiré"
 done
 dpkg -s kubectx >/dev/null 2>&1 && sudo apt-get remove -y -q kubectx >/dev/null && ok "paquet kubectx retiré"
-rm -rf ~/.kube ~/.cache/helm ~/.config/helm ~/.local/share/helm ~/.config/k9s ~/.local/share/k9s ~/labs
-ok "~/.kube, configurations Helm et k9s, ~/labs supprimés"
+rm -rf ~/.kube ~/.cache/helm ~/.config/helm ~/.local/share/helm ~/.config/k9s ~/.local/share/k9s ~/labs ~/.dokub ~/rg
+ok "~/.kube, configurations Helm et k9s, ~/labs, ~/.dokub (lignes de progression), ~/rg supprimés"
 
 log "Réglages bash de kubectl (ajoutés par les participants au lab 1)"
 # Sans kubectl, « source <(kubectl completion bash) » afficherait une erreur à chaque ouverture
