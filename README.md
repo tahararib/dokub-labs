@@ -34,7 +34,7 @@ L'application des labs est **taskboard**, branche `dokub` du dépôt `tahararib/
 | fin de chaque lab | `dokub lab check NN` | points de contrôle du lab (ligne `LAB NN` déjà en place) |
 
 Chaque commande affiche une ligne à coller dans le chat et l'ajoute à `~/.dokub/progression.log` (`dokub bilan` les réaffiche).
-Rien ne quitte le poste. Le nom affiché est `$DOKUB_POSTE`, sinon le nom de la machine.
+Rien ne quitte le poste. Le nom affiché est `$DOKUB_POSTE` (réglé par chaque participant le premier matin, espaces remplacés par `_`), sinon le nom de la machine.
 Côté formateur : copier le chat dans un fichier, puis `python3 formateur/progression.py chat.txt` (`--anonyme` pour la projection).
 
 `dokub incident start` est la seule commande qui met volontairement le cluster en panne : c'est une mise en place, comme `lab start`, pas un geste du carnet.

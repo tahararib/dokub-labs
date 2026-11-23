@@ -52,7 +52,7 @@ warn() { echo -e "  ${YELLOW}[!]  $*${NC}"; }
 ko()   { echo -e "  ${RED}[KO] $*${NC}"; }
 die()  { ko "$*"; exit 1; }
 k()    { kubectl --context "$CTX" "$@"; }
-poste() { echo "${DOKUB_POSTE:-$(hostname)}"; }   # nom affiché dans les lignes à coller
+poste() { local p="${DOKUB_POSTE:-$(hostname)}"; echo "${p// /_}"; }   # nom affiché dans les lignes à coller (espaces → _)
 
 cluster_exists() { kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; }
 
