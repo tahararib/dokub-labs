@@ -57,4 +57,4 @@ Scripts dans `master/` :
 | `get.helm.sh` | binaire Helm (lab 12) |
 | `kubernetes-sigs.github.io`, `ghcr.io` | chart et image Headlamp (lab 12) |
 
-Les autres scripts du formateur sont dans `formateur/` : démo kubeadm (jour 1), démo Argo CD (jour 3), contenu des slides « D'où vient un cluster ».
+Les autres scripts du formateur sont dans `formateur/` : démo Argo CD (jour 3), démo kubeadm (non prévue au programme, conservée pour référence), contenu des slides « D'où vient un cluster ».
