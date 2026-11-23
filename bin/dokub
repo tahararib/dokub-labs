@@ -435,6 +435,7 @@ cmd_lab_check() {
         chk "replicas retiré du fichier appliqué" "k -n taskboard get deploy taskboard -o jsonpath='{.metadata.annotations.kubectl\.kubernetes\.io/last-applied-configuration}' | jq -e '.spec.replicas == null'" "étape 4 : apply set-last-applied, puis apply"
         chk "générateur de charge supprimé" "! k -n taskboard get deploy charge" "kubectl delete -f charge.yaml"
         chk "panne nettoyée (sans-requests)" "! k -n taskboard get deploy sans-requests && ! k -n taskboard get hpa sans-requests" "kubectl delete -f sans-requests.yaml"
+        chk "dokub-worker2 planifiable, remplissage supprimé" "[ -z \"\$(k get node dokub-worker2 -o jsonpath='{.spec.unschedulable}')\" ] && ! k -n taskboard get deploy remplissage" "étape 5 : Ctrl+C dans l'onglet 2 (ou kubectl uncordon dokub-worker2), puis kubectl delete -f remplissage.yaml"
         ;;
       10)
         chk "PodDisruptionBudget taskboard : minAvailable 2" "[ \"\$(k -n taskboard get pdb taskboard -o jsonpath='{.spec.minAvailable}')\" = 2 ]" "étape 2"
@@ -519,7 +520,7 @@ etat_fin() {
             local ip; ip=$(docker inspect "$REG_NAME" -f '{{.NetworkSettings.Networks.kind.IPAddress}}')
             sed "s/172\.18\.0\.5/$ip/" "$L/lab06/registre.yaml" | k $ns apply -f - >/dev/null
         fi
-        k $ns delete deploy taskboard-canary bv-bleu bv-vert charge sans-requests --ignore-not-found >/dev/null
+        k $ns delete deploy taskboard-canary bv-bleu bv-vert charge sans-requests remplissage --ignore-not-found >/dev/null
         k $ns delete hpa sans-requests --ignore-not-found >/dev/null
         k $ns delete job export-casse calcul --ignore-not-found >/dev/null
         k $ns delete pod essai volatile --ignore-not-found >/dev/null

@@ -1,0 +1,32 @@
+# ============================================================
+# Lab 9, étape 5 (facultative) — Des pods qui réservent chacun 1 processeur.
+# Ils ne font rien (sleep) : seule compte leur request CPU, que le scheduler
+# doit loger sur un nœud. Assez de réplicas, et un worker ne suffit plus.
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: remplissage
+spec:
+  replicas: 1                      # passé à N à l'étape 5 (kubectl scale)
+  selector:
+    matchLabels: {app: remplissage}
+  template:
+    metadata:
+      labels: {app: remplissage}
+    spec:
+      terminationGracePeriodSeconds: 2   # sleep ignore SIGTERM : inutile d'attendre 30 s
+      securityContext:                   # niveau restricted du namespace (lab 5)
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: remplissage
+        image: busybox:1.37
+        command: ["sleep", "3600"]
+        resources:
+          requests: {cpu: "1", memory: 16Mi}   # 1 processeur réservé par pod
+          limits: {memory: 16Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}
