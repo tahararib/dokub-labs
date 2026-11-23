@@ -48,6 +48,9 @@ ok "~/.bashrc nettoyé"
 log "Images et volumes inutiles"
 # busybox, nginx, metrics-server, envoy restent : secours « kind load » si Docker Hub limite (README)
 docker rmi maven:3.9-eclipse-temurin-21 >/dev/null 2>&1 && ok "maven:3.9-eclipse-temurin-21 retirée"
+# Étiquettes localhost:5001/… : posées par les participants au lab 1 (les images taskboard:* restent)
+for v in 1.0.0 2.0.0 3.0.0; do docker rmi "localhost:5001/taskboard:$v" >/dev/null 2>&1; done
+ok "étiquettes localhost:5001/taskboard retirées"
 docker volume rm dokub-m2 >/dev/null 2>&1 && ok "volume dokub-m2 retiré"
 docker image prune -f >/dev/null; docker builder prune -af >/dev/null
 rm -rf /tmp/kubectl* /tmp/kind* /tmp/*.yaml
