@@ -10,6 +10,11 @@
 #   dokub mesure           mesure démarrage, passage à l'échelle et mises à jour de taskboard
 #   dokub lab start NN     remet le cluster dans l'état de début du lab NN
 #   dokub lab check NN     vérifie les points de contrôle du lab NN
+#   dokub incident start N incident sans indications (1 : J2 matin, 2 : J3 matin, 3 : J3 fin)
+#   dokub incident indice  un indice de plus (3 au plus, comptés)
+#   dokub incident check   vérifie la correction ; ligne à coller dans le chat
+#   dokub auto a b c d e   auto-évaluation : une note de 1 à 4 par objectif
+#   dokub bilan            toutes les lignes enregistrées sur ce poste
 # ============================================================
 set -euo pipefail
 
@@ -47,6 +52,7 @@ warn() { echo -e "  ${YELLOW}[!]  $*${NC}"; }
 ko()   { echo -e "  ${RED}[KO] $*${NC}"; }
 die()  { ko "$*"; exit 1; }
 k()    { kubectl --context "$CTX" "$@"; }
+poste() { echo "${DOKUB_POSTE:-$(hostname)}"; }   # nom affiché dans les lignes à coller
 
 cluster_exists() { kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; }
 
@@ -340,7 +346,8 @@ chk() {   # chk "<libellé>" "<condition shell>" "<indice si échec>"
 }
 chk_fin() {
     local l
-    l="LAB $1 · $CHK_OK/$CHK_N · $(hostname) · $(date +%H:%M)"
+    l="LAB $1 · $CHK_OK/$CHK_N · $(poste) · $(date +%H:%M)"
+    journal "$l"
     echo
     if [ "$CHK_OK" -eq "$CHK_N" ]; then echo -e "${GREEN}${l}${NC}"; else echo -e "${YELLOW}${l}${NC}"; fi
     echo "  ↑ collez cette ligne dans le chat"
@@ -565,6 +572,196 @@ cmd_lab_start() {
 }
 
 # ────────────────────────────────────────────────
+# Mesure de progression : incidents sans indications, auto-évaluation.
+# Tout reste sur le poste (~/.dokub) ; le participant colle ses lignes dans le chat.
+ETAT="$HOME/.dokub"
+JOURNAL="$ETAT/progression.log"
+INC_NS=incident
+
+journal() { mkdir -p "$ETAT"; echo "$1" >> "$JOURNAL"; }
+
+# Manifeste défectueux de l'incident N (volontairement absent de labs/ et du carnet)
+incident_yaml() {
+    local srv='mkdir -p /data && echo vitrine > /data/index.html && exec httpd -f -p 8080 -h /data'
+    local sonde=8080 selecteur='' volume='emptyDir: {}' pvc='' replicas=2
+    case $1 in
+      1) selecteur='      nodeSelector:
+        disque: ssd' ;;
+      2) sonde=8081 ;;
+      3) replicas=1
+         volume='persistentVolumeClaim:
+          claimName: vitrine-donnees'
+         pvc="---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vitrine-donnees
+  namespace: $INC_NS
+spec:
+  storageClassName: rapide
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 100Mi" ;;
+    esac
+    cat <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vitrine
+  namespace: $INC_NS
+spec:
+  replicas: $replicas
+  selector:
+    matchLabels: {app: vitrine}
+  template:
+    metadata:
+      labels: {app: vitrine}
+    spec:
+$selecteur
+      terminationGracePeriodSeconds: 2
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: web
+        image: busybox:1.37
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c", "$srv"]
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet: {path: /, port: $sonde}
+          periodSeconds: 3
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits: {memory: 16Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities: {drop: [ALL]}
+        volumeMounts:
+        - {name: donnees, mountPath: /data}
+      volumes:
+      - name: donnees
+        $volume
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vitrine
+  namespace: $INC_NS
+spec:
+  selector: {app: vitrine}
+  ports:
+  - {port: 80, targetPort: 8080}
+$pvc
+YAML
+}
+
+incident_symptome() {
+    case $1 in
+      1) echo "vitrine : 2 pods demandés, aucun ne sert de page." ;;
+      2) echo "vitrine : pods Running, mais le Service ne répond pas." ;;
+      3) echo "vitrine : pages sur un volume, le site n'a jamais démarré." ;;
+    esac
+}
+
+incident_indice() {   # incident_indice <N> <niveau>
+    case "$1.$2" in
+      1.1) echo "Dans quel état sont les pods ? kubectl -n incident get pods" ;;
+      1.2) echo "Un pod Pending n'a pas été placé : le scheduler en donne la raison dans les événements (kubectl -n incident describe pod …)." ;;
+      1.3) echo "Le Deployment exige un nœud étiqueté disque=ssd (nodeSelector) ; aucun ne l'est. Retirez l'exigence (kubectl -n incident edit deployment vitrine) ou étiquetez un nœud." ;;
+      2.1) echo "Comparez les colonnes READY et STATUS des pods : kubectl -n incident get pods" ;;
+      2.2) echo "Running n'est pas prêt, et un Service n'envoie rien à un pod non prêt. La raison est dans les événements de sonde (kubectl -n incident describe pod …)." ;;
+      2.3) echo "La sonde readiness interroge le port 8081 ; le serveur écoute sur 8080. Corrigez le port de la sonde, sans la supprimer." ;;
+      3.1) echo "Pourquoi le pod n'est-il pas placé ? kubectl -n incident describe pod …" ;;
+      3.2) echo "Le volume demandé n'est pas lié : kubectl -n incident describe pvc vitrine-donnees" ;;
+      3.3) echo "La StorageClass « rapide » n'existe pas (kubectl get storageclass). Un PVC ne se modifie pas : vitrine à 0 réplique, supprimez le PVC, recréez-le avec standard, vitrine à 1." ;;
+    esac
+}
+
+incident_resolu() {
+    local ready
+    ready=$(k -n $INC_NS get deploy vitrine -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
+    case $1 in
+      1) [ "${ready:-0}" = 2 ] ;;
+      2) [ "${ready:-0}" = 2 ] \
+           && [ -n "$(k -n $INC_NS get deploy vitrine -o jsonpath='{.spec.template.spec.containers[0].readinessProbe}')" ] ;;
+      3) [ "${ready:-0}" = 1 ] \
+           && [ "$(k -n $INC_NS get pvc vitrine-donnees -o jsonpath='{.status.phase}' 2>/dev/null)" = Bound ] ;;
+    esac
+}
+
+cmd_incident_start() {
+    local n=${1:-}
+    case $n in 1|2|3) ;; *) die "Incident inconnu : $n (incidents : 1, 2, 3)" ;; esac
+    cluster_exists || die "Pas de cluster « dokub » : dokub lab start NN d'abord"
+    log "Incident $n : mise en place"
+    k delete namespace $INC_NS --ignore-not-found --wait=true >/dev/null
+    k create namespace $INC_NS >/dev/null
+    kind load docker-image busybox:1.37 --name "$CLUSTER" >/dev/null 2>&1 \
+      || warn "busybox:1.37 non chargée dans les nœuds : dokub images"
+    incident_yaml "$n" | k apply -f - >/dev/null
+    mkdir -p "$ETAT"
+    printf '%s %s 0 -\n' "$n" "$(date +%s)" > "$ETAT/incident"
+    echo
+    echo -e "${YELLOW}$(incident_symptome "$n")${NC}"
+    echo "  Trouvez la cause et corrigez-la avec kubectl (namespace incident). Vous avez 10 minutes."
+    echo "  Bloqué : dokub incident indice (3 au plus, comptés). Fini : dokub incident check"
+}
+
+incident_lire() {
+    [ -f "$ETAT/incident" ] || die "Aucun incident en cours : dokub incident start N"
+    read -r INC_N INC_DEBUT INC_INDICES INC_FIN < "$ETAT/incident"
+}
+
+cmd_incident_indice() {
+    incident_lire
+    [ "$INC_INDICES" -ge 3 ] && { incident_indice "$INC_N" 3; warn "Plus d'indice : comparez avec le corrigé en fin de temps"; return; }
+    INC_INDICES=$((INC_INDICES + 1))
+    printf '%s %s %s %s\n' "$INC_N" "$INC_DEBUT" "$INC_INDICES" "$INC_FIN" > "$ETAT/incident"
+    echo -e "\n  Indice $INC_INDICES/3 : $(incident_indice "$INC_N" "$INC_INDICES")"
+}
+
+cmd_incident_check() {
+    local l etat min s
+    incident_lire
+    log "Incident $INC_N : vérification"
+    if incident_resolu "$INC_N"; then
+        if [ "$INC_FIN" = - ]; then
+            INC_FIN=$(date +%s)
+            printf '%s %s %s %s\n' "$INC_N" "$INC_DEBUT" "$INC_INDICES" "$INC_FIN" > "$ETAT/incident"
+        fi
+        ok "vitrine rétablie"; etat="résolu"; min=$(( (INC_FIN - INC_DEBUT + 59) / 60 ))
+    else
+        ko "vitrine toujours en panne"; etat="non résolu"; min=$(( ($(date +%s) - INC_DEBUT + 59) / 60 ))
+    fi
+    s=s; [ "$INC_INDICES" -le 1 ] && s=
+    l="INCIDENT $INC_N · $etat · $min min · $INC_INDICES indice$s · $(poste) · $(date +%H:%M)"
+    journal "$l"
+    echo
+    if [ "$etat" = résolu ]; then echo -e "${GREEN}${l}${NC}"; else echo -e "${YELLOW}${l}${NC}"; fi
+    echo "  ↑ collez cette ligne dans le chat"
+}
+
+cmd_auto() {   # dokub auto 2 1 1 3 2 : une note de 1 à 4 par objectif
+    [ $# -eq 5 ] || die "Cinq notes de 1 à 4, une par objectif : dokub auto 2 1 1 3 2"
+    local x l
+    for x in "$@"; do case $x in 1|2|3|4) ;; *) die "Note invalide : $x (1 à 4)" ;; esac; done
+    l="AUTO · $* · $(poste) · $(date +%H:%M)"
+    journal "$l"
+    echo -e "\n${GREEN}${l}${NC}\n  ↑ collez cette ligne dans le chat"
+}
+
+cmd_bilan() {
+    [ -f "$JOURNAL" ] || die "Rien d'enregistré sur ce poste"
+    log "Vos lignes, dans l'ordre"
+    cat "$JOURNAL"
+    echo "  ↑ copiez ce bloc dans le chat si une ligne s'est perdue"
+}
+
+# ────────────────────────────────────────────────
 case "${1:-} ${2:-}" in
     "cluster up")     cmd_cluster_up ;;
     "cluster down")   cmd_cluster_down ;;
@@ -574,5 +771,10 @@ case "${1:-} ${2:-}" in
     "diag-rollout "*) cmd_diag_rollout ;;
     "lab start")      cmd_lab_start "${3:-}" ;;
     "lab check")      cmd_lab_check "${3:-}" ;;
-    *) sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+    "incident start") cmd_incident_start "${3:-}" ;;
+    "incident indice") cmd_incident_indice ;;
+    "incident check") cmd_incident_check ;;
+    "auto "*)         shift; cmd_auto "$@" ;;
+    "bilan "*)        cmd_bilan ;;
+    *) sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

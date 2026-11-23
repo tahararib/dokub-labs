@@ -25,6 +25,20 @@ L'application des labs est **taskboard**, branche `dokub` du dépôt `tahararib/
 
 `dokub` ne remplace aucun geste du carnet : `lab check` vérifie, `lab start` remet un participant bloqué en selle.
 
+## Mesure de progression (décidée le 23/11/2026, pas de QCM)
+
+| Quand | Commande participant | Ce qui est mesuré |
+|---|---|---|
+| J1 9:30 et J3 16:35 | `dokub auto a b c d e` | auto-évaluation, une note de 1 à 4 par objectif de la formation |
+| J2 9:30, J3 9:30, J3 16:35 | `dokub incident start 1` (puis 2, 3) ; `dokub incident indice` ; `dokub incident check` | incident sans indications dans le namespace `incident` : résolu ou non, minutes, indices demandés |
+| fin de chaque lab | `dokub lab check NN` | points de contrôle du lab (ligne `LAB NN` déjà en place) |
+
+Chaque commande affiche une ligne à coller dans le chat et l'ajoute à `~/.dokub/progression.log` (`dokub bilan` les réaffiche).
+Rien ne quitte le poste. Le nom affiché est `$DOKUB_POSTE`, sinon le nom de la machine.
+Côté formateur : copier le chat dans un fichier, puis `python3 formateur/progression.py chat.txt` (`--anonyme` pour la projection).
+
+`dokub incident start` est la seule commande qui met volontairement le cluster en panne : c'est une mise en place, comme `lab start`, pas un geste du carnet.
+
 ## Préparer le master
 
 Scripts dans `master/` :
@@ -57,4 +71,4 @@ Scripts dans `master/` :
 | `get.helm.sh` | binaire Helm (lab 12) |
 | `kubernetes-sigs.github.io`, `ghcr.io` | chart et image Headlamp (lab 12) |
 
-Les autres scripts du formateur sont dans `formateur/` : démo Argo CD (jour 3), démo kubeadm (non prévue au programme, conservée pour référence), contenu des slides « D'où vient un cluster ».
+Les autres scripts du formateur sont dans `formateur/` : grille de progression (`progression.py`), démo Argo CD (jour 3), démo kubeadm (non prévue au programme, conservée pour référence), contenu des slides « D'où vient un cluster ».
