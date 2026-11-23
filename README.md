@@ -50,6 +50,22 @@ Scripts dans `master/` :
 | `nettoyage-master.sh` | remet un master déjà utilisé dans l'état « avant formation » |
 | `inventaire-master.ps1` | inventaire Windows en lecture seule |
 
+### Rejouer les labs sur le master (dry run)
+
+Les participants partent d'un poste cloné, déjà dans l'état du premier matin : ils n'ont rien de ceci à faire.
+Le formateur qui rejoue les labs sur le master le remet d'abord dans cet état :
+
+```
+cd ~/dokub-labs && git pull
+cp -r ~/rg ~/rg-sauvegarde              # si vous enregistrez vos essais dans ~/rg
+bash ~/dokub-labs/master/nettoyage-master.sh
+mv ~/rg-sauvegarde ~/rg
+dokub images && dokub lab start 01      # « Prêt pour le lab 1 : aucun cluster »
+```
+
+Puis fermer tous les onglets Ubuntu et en ouvrir un nouveau : un onglet déjà ouvert garde l'alias `k` et la complétion de kubectl que le nettoyage a retirés de `~/.bashrc`.
+Avant de cloner les postes, relancer le nettoyage une dernière fois.
+
 ## Accès depuis Windows (vérifié sur le master le 20/11/2026)
 
 | Mode | Depuis Ubuntu | Depuis le navigateur Windows |
