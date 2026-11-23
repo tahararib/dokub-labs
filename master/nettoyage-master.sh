@@ -6,10 +6,11 @@
 #
 # Retire ce que les participants installent ou créent eux-mêmes :
 #   clusters kind, cloud-provider-kind et ses répartiteurs, kubectl, kind,
-#   Helm, k9s, stern, kubectx, ~/.kube, réglages bash de kubectl, ~/labs, ~/.dokub, ~/rg,
+#   Helm, k9s, stern, kubectx, ~/.kube, réglages bash (kubectl, DOKUB_POSTE), ~/labs, ~/.dokub, ~/rg,
 #   images et volumes devenus inutiles.
 # Garde : Docker, jq, yq, socat, ~/dokub-labs, commande dokub, images
-#         postgres, kindest/node, cloud-provider-kind et taskboard.
+#         postgres, kindest/node, cloud-provider-kind, registry, envoy, busybox,
+#         nginx, metrics-server et taskboard.
 #
 # Exécution :  bash ~/dokub-labs/master/nettoyage-master.sh
 # Ensuite   :  bash ~/dokub-labs/master/install-wsl2-dokub.sh step_08_validate
@@ -41,12 +42,12 @@ log "Réglages bash de kubectl (ajoutés par les participants au lab 1)"
 # Sans kubectl, « source <(kubectl completion bash) » afficherait une erreur à chaque ouverture
 sed -i '/# --- DOKUB : complétion kubectl et alias k ---/,+3d' ~/.bashrc
 sed -i '/kubectl completion bash/d; /^alias k=kubectl$/d; /__start_kubectl k$/d' ~/.bashrc
+sed -i '/^export DOKUB_POSTE=/d' ~/.bashrc     # nom du participant (auto-évaluation, J1)
 ok "~/.bashrc nettoyé"
 
 log "Images et volumes inutiles"
-for img in busybox:1.37 nginx:stable registry.k8s.io/metrics-server/metrics-server:v0.9.1 maven:3.9-eclipse-temurin-21; do
-    docker rmi "$img" >/dev/null 2>&1 && ok "$img retirée"
-done
+# busybox, nginx, metrics-server, envoy restent : secours « kind load » si Docker Hub limite (README)
+docker rmi maven:3.9-eclipse-temurin-21 >/dev/null 2>&1 && ok "maven:3.9-eclipse-temurin-21 retirée"
 docker volume rm dokub-m2 >/dev/null 2>&1 && ok "volume dokub-m2 retiré"
 docker image prune -f >/dev/null; docker builder prune -af >/dev/null
 rm -rf /tmp/kubectl* /tmp/kind* /tmp/*.yaml
