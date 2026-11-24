@@ -26,7 +26,7 @@ spec:
         - sh
         - -c
         - |
-          until pg_isready -h postgres -p 5432; do
+          until pg_isready -h postgres -p 5432 -U taskboard; do   # -U : sans lui, échec sous un uid sans nom (lab 5)
             echo "PostgreSQL pas encore prêt"; sleep 2
           done
       containers:
