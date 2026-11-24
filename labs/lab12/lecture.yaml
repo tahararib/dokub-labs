@@ -1,0 +1,27 @@
+# Lab 12, étape 5 (facultative) : la lecture seule, pour le groupe « lecteurs »
+# Role : QUOI (des verbes sur des ressources), dans UN namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: lecture
+  namespace: taskboard
+rules:
+- apiGroups: ["", "apps"]          # "" : le groupe historique (pods, services…)
+  resources: [pods, pods/log, services, configmaps, deployments, replicasets]
+  verbs: [get, list, watch]        # lire, jamais modifier ; pas de secrets
+---
+# RoleBinding : À QUI ce Role est accordé. Ici un groupe, porté par le
+# certificat (O=lecteurs) : chaque membre en hérite, sans RoleBinding personnel.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: lecture-lecteurs
+  namespace: taskboard
+subjects:
+- kind: Group
+  name: lecteurs
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: lecture
+  apiGroup: rbac.authorization.k8s.io
