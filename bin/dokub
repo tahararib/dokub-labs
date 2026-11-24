@@ -743,6 +743,7 @@ cmd_incident_check() {
     echo
     if [ "$etat" = résolu ]; then echo -e "${GREEN}${l}${NC}"; else echo -e "${YELLOW}${l}${NC}"; fi
     echo "  ↑ collez cette ligne dans le chat"
+    echo "  Après le corrigé : kubectl delete namespace incident"
 }
 
 cmd_auto() {   # dokub auto 2 1 1 3 2 : une note de 1 à 4 par objectif
