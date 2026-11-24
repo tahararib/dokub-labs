@@ -205,6 +205,18 @@ function step_04_optional_tools {
 }
 
 # ────────────────────────────────────────────────
+function step_hosts {
+    Write-Step "[hosts] Nom taskboard.local (lab 6, Gateway) dans le fichier hosts de Windows..."
+    $h = "$env:SystemRoot\System32\drivers\etc\hosts"
+    if (Select-String -Path $h -Pattern '^\s*127\.0\.0\.1\s+taskboard\.local\b' -Quiet) {
+        Write-OK "déjà présent : 127.0.0.1 taskboard.local"
+    } else {
+        Add-Content -Path $h -Value "`r`n127.0.0.1 taskboard.local" -Encoding ASCII
+        ipconfig /flushdns | Out-Null
+        Write-OK "ajouté : 127.0.0.1 taskboard.local"
+    }
+}
+
 function step_05_validate {
     Write-Step "[05/05] Validation de la partie Windows..."
     $script:ok = 0; $script:ko = 0
@@ -228,7 +240,7 @@ function step_05_validate {
 
 # ────────────────────────────────────────────────
 # L'étape 04 (facultative) n'est pas dans l'enchaînement par défaut.
-$allSteps = @("step_01_features", "step_02_wsl_ubuntu", "step_03_wslconfig", "step_05_validate")
+$allSteps = @("step_01_features", "step_02_wsl_ubuntu", "step_03_wslconfig", "step_hosts", "step_05_validate")
 $knownSteps = $allSteps + "step_04_optional_tools"
 
 if ($Step -eq "all") {
