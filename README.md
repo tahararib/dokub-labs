@@ -74,6 +74,9 @@ Avant de cloner les postes, relancer le nettoyage une dernière fois.
 | `kubectl port-forward --address 0.0.0.0` | oui | oui (`localhost:<port>`) |
 | Adresse LoadBalancer / Gateway (`172.18.x.x`) | oui | non : relais `socat` vers un port localhost |
 
+WSL2 ne publie vers Windows qu'un port **écouté en IPv4** : `socat TCP4-LISTEN:8088,…` (un `TCP-LISTEN` écoute en IPv6, invisible depuis Windows ; vérifié le 24/11/2026).
+Le lab 6 (`http://taskboard.local:8088`) demande `127.0.0.1 taskboard.local` dans le fichier `hosts` de Windows : `install-windows-dokub.ps1 -Step step_hosts`.
+
 ## Accès Internet nécessaires depuis Ubuntu (session et préparation)
 
 | Site | Pour |
