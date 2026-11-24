@@ -709,6 +709,7 @@ cmd_incident_start() {
     echo -e "${YELLOW}$(incident_symptome "$n")${NC}"
     echo "  Trouvez la cause et corrigez-la avec kubectl (namespace incident). Vous avez 10 minutes."
     echo "  Bloqué : dokub incident indice (3 au plus, comptés). Fini : dokub incident check"
+    echo "  kubectl edit ouvre vi : i pour saisir, Échap puis :wq pour enregistrer, :q! pour abandonner"
 }
 
 incident_lire() {
