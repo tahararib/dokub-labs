@@ -505,7 +505,13 @@ etat_fin() {
             pg=statefulset/postgres
         else
             k $ns delete statefulset postgres --ignore-not-found >/dev/null
-            k apply -f "$SOL/lab05/postgres.yaml" >/dev/null
+            # Créé en ligne de commande au lab 2 : apply garderait « value » à côté de
+            # « valueFrom » (pas d'annotation last-applied). replace remplace l'objet entier.
+            if k $ns get deploy postgres >/dev/null 2>&1; then
+                k replace --save-config -f "$SOL/lab05/postgres.yaml" >/dev/null
+            else
+                k apply -f "$SOL/lab05/postgres.yaml" >/dev/null
+            fi
         fi
         k $ns rollout status "$pg" --timeout=180s >/dev/null
 
