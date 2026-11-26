@@ -1,20 +1,15 @@
 # ============================================================
 # Lab 11, étape 6 (facultative) — Une base PostgreSQL répliquée, décrite par UN objet.
 # Prérequis : l'opérateur CloudNativePG installé (étape 6), qui ajoute le type Cluster.
-# Son contrôleur crée les pods, les PVC, les Services, la réplication,
+# Son contrôleur crée les pods, les PVC, les Services (base-rw, base-ro, base-r),
+# le Secret base-app (utilisateur et base « app »), la réplication,
 # et désigne une nouvelle instance principale si la principale tombe.
-# Namespace à part : rien ne touche à taskboard.
+# Namespace courant (taskboard) : l'application peut lire le Secret base-app.
 # ============================================================
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: pg
----
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: base
-  namespace: pg
 spec:
   instances: 3            # 1 principale + 2 répliques, en réplication continue
   storage:

@@ -1,0 +1,20 @@
+# ============================================================
+# Lab 11, étape 6 (facultative) — Brancher taskboard sur la base répliquée.
+# Un patch : seules ces trois variables changent, le reste du Deployment reste tel quel.
+#   kubectl patch deployment taskboard --patch-file brancher-cnpg.yaml
+# Retour à la base du StatefulSet : kubectl rollout undo deployment/taskboard
+# ============================================================
+spec:
+  template:
+    spec:
+      containers:
+      - name: taskboard
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://base-rw:5432/app"      # base-rw suit toujours la principale
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom:
+            secretKeyRef: {name: base-app, key: username}   # Secret créé par l'opérateur
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef: {name: base-app, key: password}
