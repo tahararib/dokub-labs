@@ -7,6 +7,7 @@
 # Retire ce que les participants installent ou créent eux-mêmes :
 #   clusters kind, cloud-provider-kind et ses répartiteurs, kubectl, kind,
 #   Helm, k9s, stern, kubectx, ~/.kube, réglages bash (kubectl, DOKUB_POSTE), ~/labs, ~/.dokub, ~/rg,
+#   relais socat et port-forward, historique bash,
 #   images et volumes devenus inutiles.
 # Garde : Docker, jq, yq, socat, ~/dokub-labs, commande dokub, images
 #         postgres, kindest/node, cloud-provider-kind, registry, envoy, busybox,
@@ -19,6 +20,10 @@ set -uo pipefail
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
 log() { echo -e "\n${CYAN}$*${NC}"; }
 ok()  { echo -e "  ${GREEN}[OK] $*${NC}"; }
+
+log "Relais encore actifs (socat du lab 6, port-forward des labs 2 et 12)"
+pkill -f "socat TCP4-LISTEN" 2>/dev/null && ok "socat arrêté"
+pkill -f "kubectl.* port-forward" 2>/dev/null && ok "port-forward arrêtés"
 
 log "Clusters kind et répartiteurs"
 if command -v kind >/dev/null; then
@@ -45,6 +50,10 @@ sed -i '/kubectl completion bash/d; /^alias k=kubectl$/d; /__start_kubectl k$/d'
 sed -i '/^export DOKUB_POSTE=/d' ~/.bashrc     # nom du participant (auto-évaluation, J1)
 ok "~/.bashrc nettoyé"
 
+log "Historique des commandes (les solutions du dry run)"
+rm -f ~/.bash_history ~/.lesshst ~/.psql_history
+ok "~/.bash_history supprimé ; fermez ensuite ce terminal sans relancer de commande"
+
 log "Images et volumes inutiles"
 # busybox, nginx, metrics-server, envoy restent : secours « kind load » si Docker Hub limite (README)
 docker rmi maven:3.9-eclipse-temurin-21 >/dev/null 2>&1 && ok "maven:3.9-eclipse-temurin-21 retirée"
@@ -53,7 +62,7 @@ for v in 1.0.0 2.0.0 3.0.0; do docker rmi "localhost:5001/taskboard:$v" >/dev/nu
 ok "étiquettes localhost:5001/taskboard retirées"
 docker volume rm dokub-m2 >/dev/null 2>&1 && ok "volume dokub-m2 retiré"
 docker image prune -f >/dev/null; docker builder prune -af >/dev/null
-rm -rf /tmp/kubectl* /tmp/kind* /tmp/*.yaml
+rm -rf /tmp/kubectl* /tmp/kind* /tmp/*.yaml /tmp/get_helm.sh /tmp/helm*
 ok "images orphelines et cache de construction purgés"
 
 log "État final"
