@@ -86,8 +86,8 @@ Le lab 6 (`http://taskboard.local:8088`) demande `127.0.0.1 taskboard.local` dan
 | `registry-1.docker.io`, `auth.docker.io`, `production.cloudflare.docker.com` | busybox, postgres, nginx, tirés par les nœuds. Limite anonyme mesurée le 23/11/2026 depuis le master : 100 téléchargements par heure et par adresse. En cas de `toomanyrequests` : `kind load docker-image postgres:16-alpine busybox:1.37 nginx:stable --name dokub` (images présentes sur le poste) |
 | `registry.k8s.io` | metrics-server, cloud-provider-kind |
 | `quay.io` | node-exporter (lab 8) |
-| `raw.githubusercontent.com` | script d'installation de Helm (lab 12) |
+| `raw.githubusercontent.com` | script d'installation de Helm (lab 12) ; manifeste CloudNativePG (lab 11, étape 6 facultative) |
 | `get.helm.sh` | binaire Helm (lab 12) |
-| `kubernetes-sigs.github.io`, `ghcr.io` | chart et image Headlamp (lab 12) |
+| `kubernetes-sigs.github.io`, `ghcr.io` | chart et image Headlamp (lab 12) ; images CloudNativePG et PostgreSQL (lab 11, étape 6 facultative) |
 
-Les autres scripts du formateur sont dans `formateur/` : grille de progression (`progression.py`), démo Argo CD (jour 3), démo kubeadm (non prévue au programme, conservée pour référence), contenu des slides « D'où vient un cluster ».
+Les autres scripts du formateur sont dans `formateur/` : grille de progression (`progression.py`), démo Argo CD (jour 3), démo CloudNativePG (`demo-cnpg.md`, jour 3, lab 11 étape 6), démo kubeadm (non prévue au programme, conservée pour référence), contenu des slides « D'où vient un cluster ».
