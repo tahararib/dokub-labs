@@ -65,6 +65,15 @@ docker image prune -f >/dev/null; docker builder prune -af >/dev/null
 rm -rf /tmp/kubectl* /tmp/kind* /tmp/*.yaml /tmp/get_helm.sh /tmp/helm*
 ok "images orphelines et cache de construction purgés"
 
+log "Dépôt ~/dokub-labs"
+etat=$(git -C ~/dokub-labs status --short 2>/dev/null)
+if [ -z "$etat" ]; then ok "aucun fichier modifié ni ajouté"
+else
+    echo "  Fichiers laissés pendant les essais (les postes clonés les verraient) :"
+    echo "$etat" | sed 's/^/    /'
+    echo "  À vérifier, puis : git -C ~/dokub-labs checkout . && git -C ~/dokub-labs clean -fd"
+fi
+
 log "État final"
 docker images --format '  {{.Repository}}:{{.Tag}}  {{.Size}}'
 df -h / | tail -1 | awk '{print "  disque Ubuntu : " $3 " utilisés, " $4 " libres"}'
