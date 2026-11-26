@@ -40,11 +40,15 @@ def lire(texte):
     return postes
 
 
+DUREE_MAX = 120   # au-delà : incident commencé lors d'une séance précédente, durée non significative
+
+
 def cellule_inc(r):
     if r is None:
         return "—"
     ok, mn, ind = r
-    return f"{'ok' if ok else 'KO'} {mn:>2}' {ind}i"
+    duree = f"{mn:>2}'" if mn <= DUREE_MAX else ">2h?"
+    return f"{'ok' if ok else 'KO'} {duree} {ind}i"
 
 
 def main():
@@ -58,7 +62,8 @@ def main():
     etiquette = {p: (f"poste {k + 1:02d}" if anonyme else p) for k, p in enumerate(noms)}
     larg = max(len(e) for e in etiquette.values()) + 2
 
-    print("\nPAR POSTE   (incident : ok/KO, minutes, indices ; labs : terminés à 100 %)\n")
+    print("\nPAR POSTE   (incident : ok/KO, minutes, indices ; labs : terminés à 100 %)")
+    print("            (>2h? : incident commencé lors d'une séance précédente, hors temps médian)\n")
     print(f"{'':{larg}}{'incident 1':<14}{'incident 2':<14}{'incident 3':<14}{'labs':<8}auto début → fin")
     for p in noms:
         d = postes[p]
@@ -78,7 +83,8 @@ def main():
             continue
         res = [r for r in rs if r[0]]
         seul = [r for r in res if r[2] == 0]
-        med = f"{median(r[1] for r in res):.0f} min" if res else "—"
+        durees = [r[1] for r in res if r[1] <= DUREE_MAX]
+        med = f"{median(durees):.0f} min" if durees else "—"
         print(f"incident {i}{len(res):>8}/{len(rs):<3}{len(seul):>9}/{len(rs):<3}{med:>14}")
 
     debuts = [d["auto"][0] for d in postes.values() if len(d["auto"]) >= 2]

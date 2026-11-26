@@ -750,6 +750,7 @@ cmd_incident_check() {
     echo
     if [ "$etat" = résolu ]; then echo -e "${GREEN}${l}${NC}"; else echo -e "${YELLOW}${l}${NC}"; fi
     echo "  ↑ collez cette ligne dans le chat"
+    [ "$min" -gt 120 ] && warn "plus de 2 h depuis « dokub incident start » : durée non significative, le formateur ne la comptera pas"
     echo "  Après le corrigé : kubectl delete namespace incident"
 }
 
