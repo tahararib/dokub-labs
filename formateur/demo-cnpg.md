@@ -25,7 +25,7 @@ Installer l'opérateur à l'avance fait gagner une minute ; créer la base à l'
 | 0:05 | `kubectl get services,secrets -l cnpg.io/cluster=base` | `base-rw` suit la principale, `base-ro` les répliques ; `base-app` porte les identifiants. |
 | 0:06 | `cat brancher-cnpg.yaml` puis `kubectl patch … --patch-file` | Changer de base, c'est changer trois variables. L'application vise un Service, jamais un pod. Seules les 3 tâches d'exemple : base neuve, remplie au démarrage. |
 | 0:08 | `curl … -d "title=…"` puis la boucle `psql` sur base-1, 2, 3 | Une écriture, par la principale ; trois copies. |
-| 0:09 | onglet 2 `get cluster base -w` ; onglet 1 `delete pod $P` | La principale disparaît, une réplique est promue, `base-rw` la suit. L'ancienne revient comme réplique. |
+| 0:09 | onglet 2 `get cluster base -w` ; onglet 1 `delete pod $P` | La principale attend d'abord que taskboard ferme ses connexions (`smartShutdownTimeout`, 10 s dans le fichier, 180 s par défaut), puis une réplique est promue et `base-rw` la suit. L'ancienne revient comme réplique. PRIMARY ne change qu'une fois la promotion faite. |
 | 0:11 | `curl … -d "title=Après la bascule"` ; recharger la page | L'application écrit toujours. Comparer avec l'étape 5 : là, postgres-1 n'avait rien. |
 | 0:12 | `psql -c "insert …"` sur `$P` | L'ancienne principale, devenue réplique, refuse d'écrire. |
 | 0:13 | `kubectl rollout undo deployment/taskboard` | Retour à la base du StatefulSet (lab 7). « Tâche à garder » revient. |

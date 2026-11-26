@@ -14,3 +14,7 @@ spec:
   instances: 3            # 1 principale + 2 répliques, en réplication continue
   storage:
     size: 1Gi             # un PVC par instance, classe par défaut (standard)
+  # Arrêt de la principale : PostgreSQL attend d'abord que les clients se déconnectent
+  # (arrêt « smart »), 180 s par défaut. taskboard garde ses connexions ouvertes :
+  # sans ce réglage, la bascule de l'étape 6 attendrait 3 minutes.
+  smartShutdownTimeout: 10
