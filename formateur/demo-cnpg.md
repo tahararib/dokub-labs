@@ -23,7 +23,7 @@ Installer l'opérateur à l'avance fait gagner une minute ; créer la base à l'
 | 0:02 | `cat base-repliquee.yaml` puis `kubectl apply -f base-repliquee.yaml` | Un seul objet. Ni pod, ni StatefulSet, ni Service, ni Secret écrits à la main. |
 | 0:03 | `kubectl get pods -l cnpg.io/cluster=base -w` | Les instances naissent l'une après l'autre : `initdb` pour la première, `join` pour les suivantes. Pendant le téléchargement : relire le tableau de l'étape 5. |
 | 0:05 | `kubectl get services,secrets -l cnpg.io/cluster=base` | `base-rw` suit la principale, `base-ro` les répliques ; `base-app` porte les identifiants. |
-| 0:06 | `cat brancher-cnpg.yaml` puis `kubectl patch … --patch-file` | Changer de base, c'est changer trois variables. L'application vise un Service, jamais un pod. Page vide : base neuve, table créée au démarrage. |
+| 0:06 | `cat brancher-cnpg.yaml` puis `kubectl patch … --patch-file` | Changer de base, c'est changer trois variables. L'application vise un Service, jamais un pod. Seules les 3 tâches d'exemple : base neuve, remplie au démarrage. |
 | 0:08 | `curl … -d "title=…"` puis la boucle `psql` sur base-1, 2, 3 | Une écriture, par la principale ; trois copies. |
 | 0:09 | onglet 2 `get cluster base -w` ; onglet 1 `delete pod $P` | La principale disparaît, une réplique est promue, `base-rw` la suit. L'ancienne revient comme réplique. |
 | 0:11 | `curl … -d "title=Après la bascule"` ; recharger la page | L'application écrit toujours. Comparer avec l'étape 5 : là, postgres-1 n'avait rien. |
