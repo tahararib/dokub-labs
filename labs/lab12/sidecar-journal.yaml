@@ -1,0 +1,38 @@
+# ============================================================
+# Lab 12, étape 3 · sidecar — Le journal d'accès de taskboard, relayé par un sidecar natif.
+# Tomcat (le serveur web dans taskboard) sait écrire chaque requête reçue, mais dans un
+# FICHIER : kubectl logs ne le voit pas, un collecteur de logs par nœud non plus.
+# Le sidecar lit ce fichier, partagé par un volume emptyDir, et le recopie sur SA sortie standard.
+#   kubectl patch deployment taskboard --patch-file sidecar-journal.yaml
+#   kubectl logs -l app=taskboard -c journal --prefix --tail=3
+# Retour à l'état d'avant : kubectl rollout undo deployment/taskboard
+# ============================================================
+spec:
+  template:
+    spec:
+      initContainers:
+      - name: journal
+        image: busybox:1.37
+        restartPolicy: Always            # sidecar natif : démarre avant taskboard, vit avec lui, s'arrête après
+        command: ["tail", "-n", "+1", "-F", "/journaux/acces.log"]   # -F : attend le fichier, puis le suit
+        volumeMounts:
+        - {name: journaux, mountPath: /journaux, readOnly: true}
+        resources:                       # un sidecar compte dans les requests du pod (lab 4)
+          requests: {cpu: 10m, memory: 16Mi}
+          limits: {memory: 32Mi}
+        securityContext:                 # niveau restricted du namespace (lab 5)
+          allowPrivilegeEscalation: false
+          capabilities: {drop: ["ALL"]}
+      containers:
+      - name: taskboard
+        env:                             # réglages Spring Boot du journal d'accès de Tomcat
+        - {name: SERVER_TOMCAT_ACCESSLOG_ENABLED, value: "true"}
+        - {name: SERVER_TOMCAT_ACCESSLOG_DIRECTORY, value: /journaux}
+        - {name: SERVER_TOMCAT_ACCESSLOG_PREFIX, value: acces}
+        - {name: SERVER_TOMCAT_ACCESSLOG_ROTATE, value: "false"}     # un seul fichier : acces.log
+        - {name: SERVER_TOMCAT_ACCESSLOG_BUFFERED, value: "false"}   # écrit à chaque requête
+        volumeMounts:
+        - {name: journaux, mountPath: /journaux}
+      volumes:
+      - name: journaux
+        emptyDir: {sizeLimit: 50Mi}      # partagé par les conteneurs du pod, effacé avec lui (lab 11)
