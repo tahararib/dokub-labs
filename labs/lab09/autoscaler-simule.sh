@@ -16,12 +16,12 @@
 # (un vrai autoscaler : utilisation < 50 % des requests, pods déplaçables, 10 minutes).
 #
 #   bash ~/dokub-labs/labs/lab09/autoscaler-simule.sh
-# Variables : RESERVE (dokub-worker2), DEMARRAGE (15 s), INUTILE (60 s)
+# Variables : RESERVE (dokub-worker2), DEMARRAGE (30 s), INUTILE (60 s)
 # ============================================================
 set -uo pipefail
 
 RESERVE=${RESERVE:-dokub-worker2}
-DEMARRAGE=${DEMARRAGE:-15}       # « démarrage de la machine » : quelques minutes dans un cloud
+DEMARRAGE=${DEMARRAGE:-30}       # « démarrage de la machine » : quelques minutes dans un cloud
 INUTILE=${INUTILE:-60}           # nœud inutile avant retrait : 10 minutes par défaut dans un vrai autoscaler
 PERIODE=5                        # un vrai Cluster Autoscaler regarde toutes les 10 s
 NS=taskboard
