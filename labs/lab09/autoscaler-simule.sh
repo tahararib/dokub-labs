@@ -38,6 +38,15 @@ trap remettre INT TERM
 
 kubectl get node "$RESERVE" >/dev/null 2>&1 || { echo "nœud $RESERVE introuvable"; exit 1; }
 
+# Des pods de remplissage déjà placés : rien ne sera en attente, le script resterait muet.
+deja=$(kubectl get pods -n "$NS" -l app=remplissage -o name | wc -l)
+if [ "$deja" -gt 0 ]; then
+    echo "$deja pod(s) remplissage déjà en place : le scénario partirait d'un cluster déjà rempli."
+    echo "Supprimez-les d'abord, puis relancez le script :"
+    echo "  kubectl delete -f ~/labs/lab09/remplissage.yaml"
+    exit 1
+fi
+
 kubectl cordon "$RESERVE" >/dev/null
 dit "départ : $RESERVE en réserve (cordon)"
 dit "surveillance toutes les ${PERIODE} s ; Ctrl+C pour arrêter"
