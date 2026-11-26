@@ -1,0 +1,7 @@
+# ============================================================
+# Lab 12, étape 4 · facultative — Vos valeurs pour le chart Headlamp.
+# Seules les valeurs que vous changez : le reste vient du values.yaml du chart.
+#   helm show values headlamp/headlamp            (toutes les valeurs possibles)
+#   helm upgrade headlamp headlamp/headlamp -n headlamp -f headlamp-valeurs.yaml
+# ============================================================
+replicaCount: 2        # 1 par défaut dans le chart
