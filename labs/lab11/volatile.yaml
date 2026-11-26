@@ -14,7 +14,9 @@ spec:
   containers:
   - name: volatile
     image: busybox:1.37
-    command: ["sh", "-c", "date >> /cache/demarrages; sleep infinity"]   # une ligne par démarrage
+    # Une ligne par démarrage, puis attente. sh est le PID 1 du conteneur : sans « trap »,
+    # il ignorerait SIGTERM (comme java au lab 0). Avec, « kill 1 » arrête le conteneur.
+    command: ["sh", "-c", "trap 'exit 0' TERM; date >> /cache/demarrages; while true; do sleep 1; done"]
     volumeMounts:
     - {name: cache, mountPath: /cache}
     securityContext:
