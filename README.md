@@ -64,7 +64,27 @@ dokub images && dokub lab start 01      # « Prêt pour le lab 1 : aucun cluster
 ```
 
 Puis fermer tous les onglets Ubuntu et en ouvrir un nouveau : un onglet déjà ouvert garde l'alias `k` et la complétion de kubectl que le nettoyage a retirés de `~/.bashrc`.
-Avant de cloner les postes, relancer le nettoyage une dernière fois.
+Avant de cloner les postes, relancer le nettoyage une dernière fois, puis préparer la capture (fait le 26/11/2026 : 15,1 Go → 8,1 Go) :
+
+```
+git -C ~/dokub-labs status --short          # vide : sinon git clean -fd
+bash ~/dokub-labs/master/install-wsl2-dokub.sh step_08_validate
+sudo fstrim -av && history -c && exit       # place libérée marquée récupérable ; historique vidé
+```
+
+Puis, dans PowerShell administrateur : `wsl --shutdown`, repérer le disque, le compacter avec diskpart.
+
+```
+Get-ChildItem "$env:LOCALAPPDATA\Packages", "$env:LOCALAPPDATA\wsl" -Recurse -Filter ext4.vhdx -ErrorAction SilentlyContinue | Select-Object FullName, @{n='Go';e={[math]::Round($_.Length/1GB,1)}}
+diskpart
+  select vdisk file="<chemin de ext4.vhdx>"
+  attach vdisk readonly
+  compact vdisk
+  detach vdisk
+  exit
+```
+
+Vérifier aussi une seule ligne `127.0.0.1 taskboard.local` dans le fichier hosts de Windows, et vider les dossiers récents de VS Code.
 
 ## Accès depuis Windows (vérifié sur le master le 20/11/2026)
 
